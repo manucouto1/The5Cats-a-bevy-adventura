@@ -1,6 +1,7 @@
 # 2D Platformer in Bevy 0.16
 
-![Game Screenshot](snapshots/Level one.png)
+![Game Screenshot](snapshots/Level%20one.png)
+
 
 ---
 
@@ -18,7 +19,8 @@ This version is being rewritten in **Rust** (a language I'm still learning), usi
 ## 🎥 Pygame Version
 
 Here is the original version made with Pygame:  
-[![Pygame Demo](https://img.youtube.com/vi/92Le6aYf9X4/0.jpg)](https://www.youtube.com/watch?v=92Le6aYf9X4&list=PLS2-ezTAFpKkTXsgmpI7NpgLZUm-lQ-qJ)
+[![Pygame Demo](https://img.youtube.com/vi/92Le6aYf9X4/hqdefault.jpg)](https://www.youtube.com/watch?v=92Le6aYf9X4&list=PLS2-ezTAFpKkTXsgmpI7NpgLZUm-lQ-qJ)
+
 
 ---
 
@@ -40,6 +42,3 @@ cargo run
 
 Commercial use is not allowed without explicit permission.
 
-
-¿Quieres que te prepare también el `LICENSE.md` combinado (GPLv3 + CC-BY-NC) para que ya quede todo redondo en el repo?
-```
