@@ -1,0 +1,66 @@
+{
+  "tofe": {
+    "name": "tofe",
+    "layer": 0,
+    "height": 32,
+    "width": 32,
+    "rescale_x": 32,
+    "rescale_y": 32,
+    "sheet": "Hero_full.png",
+    "projectile": "wool3.png",
+    "rows": 6,
+    "path": ""
+  },
+
+  "dummy": {
+    "name": "enemy",
+    "layer": 0,
+    "height": 32,
+    "width": 32,
+    "rescale_x": 32,
+    "rescale_y": 32,
+    "sheet": "enemy_full.png",
+    "projectile": null,
+    "rows": 4,
+    "path": "src.sprites.active.enemy_dummy.EnemyDummy"
+  },
+
+  "turret": {
+    "name": "fufi",
+    "layer": 0,
+    "height": 64,
+    "width": 64,
+    "rescale_x": 32,
+    "rescale_y": 32,
+    "sheet": "fufi_full.png",
+    "projectile": "wool.png",
+    "rows": 3,
+    "path": "src.sprites.active.enemy_turret_shooter.EnemyTurretShooter"
+  },
+
+  "maniac": {
+    "name": "catcifer",
+    "layer": 0,
+    "height": 64,
+    "width": 64,
+    "rescale_x": 64,
+    "rescale_y": 64,
+    "sheet": "catcifer_full.png",
+    "projectile": "wool.png",
+    "rows": 3,
+    "path": "src.sprites.active.enemy_maniac_shooter.Maniac"
+  },
+
+  "boss": {
+    "name": "kidd_cat",
+    "layer": 1,
+    "height": 64,
+    "width": 64,
+    "rescale_x": 124,
+    "rescale_y": 124,
+    "sheet": "kidd_full.png",
+    "projectile": "wool.png",
+    "rows": 3,
+    "path": "src.sprites.active.final_boss.FinalBoss"
+  }
+}

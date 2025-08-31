@@ -1,0 +1,31 @@
+{
+  "hero": {
+    "name": "tofe",
+    "scale": 32,
+    "x": 1,
+    "y": 21
+  },
+
+  "enemies": [
+    {
+      "name": "Catcifer",
+      "scale": 32,
+      "positions": [{ "x": 76, "y": 18, "id": 25 }]
+    },
+    {
+      "name": "Dummy",
+      "scale": 32,
+      "positions": [
+        { "x": 16, "y": 22, "id": 21 },
+        { "x": 37, "y": 21, "id": 21 },
+        { "x": 63, "y": 19, "id": 21 },
+        { "x": 90, "y": 21, "id": 21 }
+      ]
+    },
+    {
+      "name": "Fufi",
+      "scale": 32,
+      "positions": [{ "x": 47, "y": 16, "id": 20 }]
+    }
+  ]
+}

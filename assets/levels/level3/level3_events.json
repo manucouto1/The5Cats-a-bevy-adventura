@@ -1,0 +1,10 @@
+{
+  "events": [
+      {
+        "path": "src.sprites.passive.event.EndLevel",
+        "scale": 32,
+        "id": 21, "x":24, "y":9
+      }
+  ]
+
+}

@@ -1,0 +1,14 @@
+{
+  "fps": 30,
+  "screen_height": 800,
+  "screen_width": 800,
+  "cursor": "point-cursor.png",
+  "characters": "game_characters.json",
+  "levels": [
+    "level4",
+    "level3",
+    "level2",
+    "level1"
+  ],
+  "sounds": "game_sounds.json"
+}

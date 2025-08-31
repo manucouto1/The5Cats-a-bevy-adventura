@@ -1,0 +1,16 @@
+{
+  "name": "src.sprites.groups.camera.CameraVerticalGap",
+  "scale": 32,
+  "gaps": [
+    {
+      "id": 0,
+      "y_init": 0,
+      "y_end": 25
+    },
+    {
+      "id": 1,
+      "y_init": 26,
+      "y_end": 50
+    }
+  ]
+}

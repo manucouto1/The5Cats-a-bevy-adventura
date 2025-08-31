@@ -1,0 +1,84 @@
+{
+  "tile_size": 32,
+  "map_width": 20,
+  "map_height": 15,
+  "layers": [
+    {
+      "name": 0,
+      "tileset_name": "ground",
+      "path": "levels/tilesets/ground.png",
+      "positions": [
+        { "x": 0, "y": 0, "id": 1 },
+        { "x": 1, "y": 0, "id": 1 },
+        { "x": 2, "y": 0, "id": 1 },
+        { "x": 3, "y": 0, "id": 1 },
+        { "x": 4, "y": 0, "id": 1 },
+        { "x": 5, "y": 0, "id": 1 },
+        { "x": 6, "y": 0, "id": 1 },
+        { "x": 7, "y": 0, "id": 1 },
+        { "x": 8, "y": 0, "id": 1 },
+        { "x": 9, "y": 0, "id": 1 },
+        { "x": 10, "y": 2, "id": 2 },
+        { "x": 11, "y": 2, "id": 2 },
+        { "x": 12, "y": 2, "id": 2 },
+        { "x": 13, "y": 4, "id": 2 },
+        { "x": 14, "y": 4, "id": 2 },
+        { "x": 15, "y": 4, "id": 2 },
+        { "x": 16, "y": 4, "id": 2 },
+        { "x": 17, "y": 4, "id": 2 },
+        { "x": 18, "y": 4, "id": 2 },
+        { "x": 19, "y": 4, "id": 2 }
+      ]
+    },
+    {
+      "name": 1,
+      "tileset_name": "decorations",
+      "path": "levels/tilesets/decorations.png",
+      "positions": [
+        { "x": 5, "y": 1, "id": 10 },
+        { "x": 8, "y": 1, "id": 11 },
+        { "x": 12, "y": 3, "id": 12 },
+        { "x": 16, "y": 5, "id": 13 }
+      ]
+    }
+  ],
+  "enemies": [
+    {
+      "tipo": "goomba",
+      "x": 320.0,
+      "y": 64.0
+    },
+    {
+      "tipo": "koopa",
+      "x": 480.0,
+      "y": 64.0
+    },
+    {
+      "tipo": "goomba",
+      "x": 640.0,
+      "y": 128.0
+    }
+  ],
+  "items": [
+    {
+      "tipo": "coin",
+      "x": 160.0,
+      "y": 96.0
+    },
+    {
+      "tipo": "coin",
+      "x": 224.0,
+      "y": 96.0
+    },
+    {
+      "tipo": "powerup",
+      "x": 400.0,
+      "y": 96.0
+    },
+    {
+      "tipo": "coin",
+      "x": 560.0,
+      "y": 160.0
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "sounds": {
+    "common": {
+      "jump": "jump.ogg",
+      "shoot": "ball_throw.ogg",
+      "hero_hit": "dog_hit.ogg",
+      "enemy_hit": "cat_meow.ogg",
+      "destroy_enemy": "cat_purr.ogg",
+      "button_click": "button_click.ogg",
+      "point": "point.ogg",
+      "one_up": "one_up.ogg",
+      "cookie": "cookie.ogg",
+      "die": "die.ogg"
+    },
+    "menu": {
+      "jump": null,
+      "shoot": null,
+      "hero_hit": null,
+      "enemy_hit": null,
+      "destroy_enemy": null,
+      "button_click": "button_click.ogg",
+      "point": null,
+      "one_up": null,
+      "cookie": null,
+      "die": null
+    },
+    "game_over": {
+      "jump": null,
+      "shoot": null,
+      "hero_hit": null,
+      "enemy_hit": null,
+      "destroy_enemy": null,
+      "button_click": "button_click.ogg",
+      "point": null,
+      "one_up": null,
+      "cookie": null,
+      "die": null
+    }
+  },
+  "music": {
+    "menu": "menu.ogg",
+    "game": "game.ogg",
+    "final_level": "final_level.ogg",
+    "game_over": "credits.ogg",
+    "credits": "credits.ogg"
+  }
+}

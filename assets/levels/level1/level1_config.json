@@ -1,0 +1,18 @@
+{
+  "path": "src.levels.level_2d_scroller.Scroller2D",
+  "background": "background",
+  "tiles": {
+    "image":  "level1.png",
+    "config": "level1.json",
+    "layers_id": {
+      "falling": 3,
+      "ground": 1,
+      "danger": 2
+    }
+  },
+  "entities": "level1_active_object.json",
+  "events": "level1_events.json",
+  "gaps": "level1_gaps.json",
+  "sounds_profile": "common",
+  "music_profile": "game"
+}

@@ -1,0 +1,18 @@
+{
+  "path": "src.levels.level_vertical_scroller.VerticalScroller",
+  "background": "background",
+  "tiles": {
+    "image":  "level4.png",
+    "config": "level4.json",
+    "layers_id": {
+      "falling": 3,
+      "ground": 1,
+      "danger": 2
+    }
+  },
+  "entities": "level4_active_object.json",
+  "events": "level4_events.json",
+  "gaps": "level4_gaps.json",
+  "sounds_profile": "common",
+  "music_profile": "final_level"
+}
