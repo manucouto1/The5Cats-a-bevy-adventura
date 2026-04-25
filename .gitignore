@@ -1,1 +1,5 @@
 /target
+
+# macOS metadata (appears when repo is accessed via SMB/NFS from a Mac)
+.DS_Store
+._*

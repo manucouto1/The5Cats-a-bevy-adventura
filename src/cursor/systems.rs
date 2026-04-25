@@ -8,9 +8,19 @@ use crate::{
         assets::CursorAssets,
         components::{Crosshair, Projectile, WoolBall},
     },
-    physics::{AffectedByGravity, Mass},
-    player::components::PlayerCharacter,
+    enemies::components::{
+        EnemyCharacter, EnemyKilledEvent, EnemyType, FinalBoss, Patrol,
+    },
+    game_state::LevelCompleteEvent,
+    map::zones::{BossFallArmed, LevelZones, falling_zone_center_x},
+    physics::{AffectedByGravity, FallingMode, Mass},
+    player::components::{Health, PlayerCharacter},
 };
+
+/// Descent speed for the boss while it free-falls down the shaft in phase 2.
+/// Slower than the player (who falls at `FALLING_SPEED` = 500) so the player
+/// catches up and stays near the boss for the fight.
+const BOSS_FALL_SPEED: f32 = 320.0;
 
 pub fn update_aim_assist(
     // Recursos para obtener la posición del ratón
@@ -79,8 +89,10 @@ pub fn spawn_projectile_on_click(
     player_query: Query<&Transform, With<PlayerCharacter>>,
     crosshair_query: Query<&Transform, With<Crosshair>>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
 ) {
     if mouse_button_input.just_pressed(MouseButton::Left) {
+        sfx.write(crate::audio::SfxEvent::Shoot);
         let layout = TextureAtlasLayout::from_grid(UVec2::splat(64), 1, 1, None, None);
         let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
@@ -128,7 +140,6 @@ pub fn spawn_projectile_on_click(
                 Transform::from_translation(offset_pos.extend(98.0)).with_scale(Vec3::splat(0.5)),
                 WoolBall,
                 Projectile {
-                    velocity,
                     despawn_timer: Timer::from_seconds(2.0, TimerMode::Once),
                     has_collided: false,
                 },
@@ -147,6 +158,186 @@ pub fn spawn_projectile_on_click(
     }
 }
 
+/// Wool-ball ↔ enemy damage. For every `CollisionEvent::Started` between a
+/// wool-ball projectile and an `EnemyCharacter`, subtracts 1 HP from the
+/// enemy and despawns the wool ball. If the hit drops the enemy to 0 HP,
+/// emits `EnemyKilledEvent` (consumed by the collectibles plugin) and
+/// despawns the enemy.
+pub fn wool_ball_damage_system(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    wool_balls: Query<Entity, With<WoolBall>>,
+    // Bosses have their own damage pipeline (phases, hit-cooldown) — skip them here.
+    mut enemies: Query<
+        (&Transform, &mut Health, &EnemyType),
+        (With<EnemyCharacter>, Without<FinalBoss>),
+    >,
+    mut killed: EventWriter<EnemyKilledEvent>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
+) {
+    for event in collision_events.read() {
+        let CollisionEvent::Started(e1, e2, _) = event else {
+            continue;
+        };
+        let (wool, enemy) = if wool_balls.get(*e1).is_ok() && enemies.get(*e2).is_ok() {
+            (*e1, *e2)
+        } else if wool_balls.get(*e2).is_ok() && enemies.get(*e1).is_ok() {
+            (*e2, *e1)
+        } else {
+            continue;
+        };
+
+        let Ok((tf, mut health, kind)) = enemies.get_mut(enemy) else {
+            continue;
+        };
+        health.current = health.current.saturating_sub(1);
+        commands.entity(wool).despawn();
+
+        if health.current == 0 {
+            sfx.write(crate::audio::SfxEvent::DestroyEnemy);
+            killed.write(EnemyKilledEvent {
+                position: tf.translation,
+                kind: kind.clone(),
+            });
+            commands.entity(enemy).despawn();
+        } else {
+            sfx.write(crate::audio::SfxEvent::EnemyHit);
+        }
+    }
+}
+
+/// Boss damage pipeline. Has three differences from the regular enemy
+/// version: (1) rate-limited via `FinalBoss.hit_cooldown` so the player
+/// can't stun-lock with rapid fire, (2) death cycles through 3 HP phases
+/// (18 → 36 → 18) before actually dying, (3) on final death emits
+/// `LevelCompleteEvent` (which is the level-4 victory trigger via the
+/// existing `handle_level_complete` — it sees Level4.next() is None and
+/// returns to the main menu).
+pub fn boss_damage_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut collision_events: EventReader<CollisionEvent>,
+    wool_balls: Query<Entity, With<WoolBall>>,
+    mut bosses: Query<(&mut Transform, &mut Health, &mut FinalBoss), With<EnemyCharacter>>,
+    zones: Option<Res<LevelZones>>,
+    mut armed: ResMut<BossFallArmed>,
+    mut level_complete: EventWriter<LevelCompleteEvent>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
+) {
+    // Tick cooldowns regardless of whether a hit happened this frame.
+    for (_, _, mut boss) in &mut bosses {
+        boss.hit_cooldown.tick(time.delta());
+    }
+
+    for event in collision_events.read() {
+        let CollisionEvent::Started(e1, e2, _) = event else {
+            continue;
+        };
+        let (wool, boss_entity) = if wool_balls.get(*e1).is_ok() && bosses.get(*e2).is_ok() {
+            (*e1, *e2)
+        } else if wool_balls.get(*e2).is_ok() && bosses.get(*e1).is_ok() {
+            (*e2, *e1)
+        } else {
+            continue;
+        };
+
+        commands.entity(wool).despawn();
+
+        let Ok((mut tf, mut health, mut boss)) = bosses.get_mut(boss_entity) else {
+            continue;
+        };
+        if !boss.hit_cooldown.finished() {
+            continue;
+        }
+        boss.hit_cooldown.reset();
+        health.current = health.current.saturating_sub(1);
+
+        if health.current != 0 {
+            sfx.write(crate::audio::SfxEvent::EnemyHit);
+            continue;
+        }
+
+        sfx.write(crate::audio::SfxEvent::DestroyEnemy);
+
+        match boss.phase {
+            1 => {
+                boss.phase = 2;
+                health.current = 36;
+                health.max = 36;
+                info!("Boss phase 2: falling down the shaft");
+                // Teleport the boss to the top of the shaft so it falls INTO
+                // the hole. If the shaft isn't defined for this level (only
+                // level 4 has it) this is a no-op — the boss stays put and
+                // just gets FallingMode, which is also fine.
+                if let Some(cx) = zones.as_deref().and_then(falling_zone_center_x) {
+                    tf.translation.x = cx;
+                }
+                commands
+                    .entity(boss_entity)
+                    .remove::<Patrol>()
+                    .insert(FallingMode {
+                        speed: BOSS_FALL_SPEED,
+                    });
+                armed.0 = true;
+            }
+            2 => {
+                boss.phase = 3;
+                health.current = 18;
+                health.max = 18;
+                info!("Boss phase 3: final showdown");
+                // Drop out of free-fall, resume patrolling on the ground.
+                commands
+                    .entity(boss_entity)
+                    .remove::<FallingMode>()
+                    .insert(Patrol {
+                        speed: 60.0,
+                        direction: -1,
+                    });
+            }
+            _ => {
+                info!("Boss defeated!");
+                level_complete.write(LevelCompleteEvent);
+                commands.entity(boss_entity).despawn();
+            }
+        }
+    }
+}
+
+/// Active only during boss phase 2. Tweens the boss's X toward the player's
+/// X each frame so it "chases" while both fall down the shaft. Vertical
+/// velocity is already pinned by the boss's `FallingMode`, so any Y
+/// adjustment is additive to that.
+pub fn boss_follow_hero_system(
+    time: Res<Time>,
+    mut bosses: Query<
+        (&mut Transform, &FinalBoss),
+        (With<EnemyCharacter>, With<FallingMode>, Without<PlayerCharacter>),
+    >,
+    player: Query<&Transform, With<PlayerCharacter>>,
+) {
+    let Ok(player_tf) = player.single() else {
+        return;
+    };
+    let player_pos = player_tf.translation;
+
+    for (mut tf, boss) in &mut bosses {
+        if boss.phase != 2 {
+            continue;
+        }
+        // Smooth horizontal tracking — slower than player's lateral speed so
+        // the player can dodge side-to-side.
+        let dx = player_pos.x - tf.translation.x;
+        let chase_speed = 180.0;
+        let step = dx.signum() * chase_speed * time.delta_secs();
+        // Don't overshoot.
+        if step.abs() > dx.abs() {
+            tf.translation.x = player_pos.x;
+        } else {
+            tf.translation.x += step;
+        }
+    }
+}
+
 /// Sistema para gestionar las colisiones de los proyectiles y el temporizador de desaparición.
 pub fn handle_projectile_despawn(
     mut commands: Commands,
@@ -158,18 +349,10 @@ pub fn handle_projectile_despawn(
         if let CollisionEvent::Started(entity1, entity2, _) = event {
             // Revisa si alguna de las entidades es un proyectil.
             if let Ok((_, mut projectile)) = projectile_query.get_mut(*entity1) {
-                if !projectile.has_collided {
-                    projectile.has_collided = true;
-                    println!("Projectile collided");
-                    // Aquí puedes añadir efectos o sonido
-                }
+                projectile.has_collided = true;
             }
             if let Ok((_, mut projectile)) = projectile_query.get_mut(*entity2) {
-                if !projectile.has_collided {
-                    projectile.has_collided = true;
-                    println!("Projectile collided");
-                    // Aquí puedes añadir efectos o sonido
-                }
+                projectile.has_collided = true;
             }
         }
     }

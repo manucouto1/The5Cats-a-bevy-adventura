@@ -1,19 +1,27 @@
 use crate::map::components::TilePosition;
-use bevy::{
-    asset::Handle,
-    ecs::{component::Component, resource::Resource},
-    image::Image,
-    platform::collections::HashMap,
-    time::Timer,
-};
+use bevy::prelude::*;
+use bevy::platform::collections::HashMap;
 use serde::Deserialize;
 use strum_macros::{Display, EnumString, VariantNames};
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, EnumString, VariantNames, Display)]
+/// Enemy types. Per-level JSON files use either the proper cat name
+/// (`Catcifer`, `Fufi`, `Dummy`) or lowercase role aliases (`maniac`,
+/// `turret`, `dummy`, `boss`). Strum's `serialize`/`ascii_case_insensitive`
+/// attributes collapse all variants into one enum so the loader doesn't
+/// care which level file it's reading.
+///
+/// Also used as a `Component` on live enemy entities so systems that handle
+/// enemy death can read which type was killed (to spawn the right drop).
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Component, EnumString, VariantNames, Display)]
+#[strum(ascii_case_insensitive)]
 pub enum EnemyType {
+    #[strum(serialize = "Catcifer", serialize = "maniac")]
     Catcifer,
+    #[strum(serialize = "Dummy")]
     Dummy,
+    #[strum(serialize = "Fufi", serialize = "turret")]
     Fufi,
+    #[strum(serialize = "KiddCat", serialize = "boss")]
     KiddCat,
     Maximiliano,
     Willie,
@@ -33,7 +41,6 @@ pub struct EnemyAssets {
 #[derive(Debug, Deserialize, Resource)]
 pub struct ActiveObjectData {
     pub name: String,
-    pub scale: u32,
     pub positions: Vec<TilePosition>,
 }
 
@@ -47,50 +54,92 @@ pub struct EnemyCharacter;
 
 // --- Componentes de IA ---
 
-/// Define el estado actual de la IA de un enemigo.
+/// Current AI state for an enemy. Only `Idle` and `Patrolling` are used —
+/// expand as more behaviors land.
 #[derive(Component, Debug, PartialEq, Eq)]
 pub enum EnemyState {
     Idle,
     Patrolling,
-    Chasing,
-    Attacking,
-    Fleeing, // Para teletransportarse
 }
 
-/// Componente para enemigos que patrullan.
+/// Component for enemies that patrol left/right, reversing at walls/edges.
 #[derive(Component)]
 pub struct Patrol {
     pub speed: f32,
-    pub direction: i32, // 1 para derecha, -1 para izquierda
+    /// +1 = facing right, -1 = facing left. Flipped by `patrol_system`.
+    pub direction: i32,
 }
 
-/// Componente para enemigos que persiguen al jugador.
+/// Fufi-style turret: fires `shots_per_burst` bullets with a short interval,
+/// then waits `cooldown_timer` before the next burst. Aims at the player.
+///
+/// Pygame reference: `EnemyTurretShooter.shoot_hero` — 3 shots, 0.09s between,
+/// 2.88s cooldown, 300px detection range.
 #[derive(Component)]
-pub struct Chase {
-    pub speed: f32,
+pub struct TurretShot {
     pub range: f32,
+    pub shots_per_burst: u8,
+    pub shots_remaining: u8,
+    pub burst_interval_timer: Timer,
+    pub cooldown_timer: Timer,
 }
 
-/// Componente para ataques a distancia.
+/// Catcifer-style fan: fires `rays` bullets in a full circle every cooldown.
+///
+/// Pygame reference: `ShooterEntity.shoot_maniac` — 16 rays at pi/8 steps.
 #[derive(Component)]
-pub struct RangedAttack {
-    pub attack_type: RangedAttackType,
+pub struct FanShot {
     pub range: f32,
-    pub timer: Timer,
+    pub rays: u8,
+    pub cooldown_timer: Timer,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum RangedAttackType {
-    SingleShot, // Para Fufi
-    FanShot,    // Para Catcifer
-}
-
-/// Componente para enemigos que se teletransportan.
+/// Despawns a projectile after a lifetime elapses (prevents off-screen accumulation).
 #[derive(Component)]
-pub struct Teleport {
-    /// Distancia mínima a la que el jugador debe estar para activar el teletransporte.
-    pub trigger_distance: f32,
-    pub timer: Timer,
+pub struct ProjectileLifetime(pub Timer);
+
+/// Present on projectiles currently flying. Pool slots that are idle do not
+/// have this marker, so per-frame systems (lifetime, damage) skip them.
+#[derive(Component)]
+pub struct ProjectileActive;
+
+/// Culling marker: present only on enemies within the camera's activation
+/// radius. AI systems (patrol, shoot, sprite facing) filter on this so far-
+/// away enemies don't consume CPU. Maintained by `activator_system` with
+/// hysteresis to avoid flicker on the boundary.
+#[derive(Component)]
+pub struct Active;
+
+/// Emitted the moment an enemy's HP drops to 0, before the entity is
+/// despawned. Consumers (collectibles) read `kind` to decide what to drop
+/// and `position` where to spawn it.
+#[derive(Event, Debug)]
+pub struct EnemyKilledEvent {
+    pub position: bevy::prelude::Vec3,
+    pub kind: EnemyType,
+}
+
+/// Marks the final-boss entity (KiddCat). Bypasses the regular wool-ball
+/// damage path and uses `boss_damage_system` instead, which cycles through
+/// three HP phases (18 → 36 → 18) before emitting `LevelCompleteEvent`.
+#[derive(Component)]
+pub struct FinalBoss {
+    pub phase: u8,
+    /// Minimum time between successive hits. Matches pygame's 2s cooldown
+    /// (reduced to 1s here for less grindy testing).
+    pub hit_cooldown: Timer,
+}
+
+impl Default for FinalBoss {
+    fn default() -> Self {
+        let mut hit_cooldown = Timer::from_seconds(1.0, TimerMode::Once);
+        // Boss is hittable on the very first frame.
+        hit_cooldown.tick(hit_cooldown.duration());
+        Self {
+            phase: 1,
+            hit_cooldown,
+        }
+    }
 }
 
 /// Componente para enemigos que hacen daño al contacto.

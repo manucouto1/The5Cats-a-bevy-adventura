@@ -25,19 +25,37 @@ pub struct Velocity {
     pub velocity: Vec2,
 }
 
+/// Overrides regular gravity with a constant downward velocity. Used by
+/// level 4's falling zones: the player free-falls through a long shaft
+/// at a steady speed while keeping horizontal control. Removed when the
+/// player enters a non-falling zone.
+#[derive(Component)]
+pub struct FallingMode {
+    pub speed: f32,
+}
+
 pub fn gravity_system(
     time: Res<Time>,
     mut query: Query<
         (&mut Velocity, &Mass, &KinematicCharacterControllerOutput),
-        With<AffectedByGravity>,
+        (With<AffectedByGravity>, Without<FallingMode>),
     >,
 ) {
     let t = (SMOOTHING_FACTOR * time.delta_secs()).min(1.0);
     for (mut velocity, mass, output) in &mut query {
         if !output.grounded {
             let gravity_force = GRAVITY * mass.kilograms;
-            velocity.velocity.y -= gravity_force * t; // acumula
+            velocity.velocity.y -= gravity_force * t;
         }
+    }
+}
+
+/// For every entity with `FallingMode`, pins vertical velocity to a constant
+/// downward value each frame. Horizontal velocity is left alone so the
+/// player keeps left/right control while falling.
+pub fn falling_mode_system(mut query: Query<(&mut Velocity, &FallingMode)>) {
+    for (mut velocity, falling) in &mut query {
+        velocity.velocity.y = -falling.speed;
     }
 }
 

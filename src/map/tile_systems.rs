@@ -1,4 +1,5 @@
 use crate::{
+    game_state::LevelCompleteEvent,
     map::components::{
         BouncyPlatform, DamageTile, FallingState, FallingTile, TileProperties, TileType,
     },
@@ -6,7 +7,7 @@ use crate::{
     player::components::{Health, Invincibility, PlayerCharacter},
 };
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::{KinematicCharacterControllerOutput, RigidBody};
+use bevy_rapier2d::prelude::{CollisionEvent, KinematicCharacterControllerOutput, RigidBody};
 
 // Sistema para manejar tiles que caen
 pub fn falling_tiles_system(
@@ -114,39 +115,75 @@ pub fn damage_platforms_system(
     mut velocity_query: Query<&mut PlayerVelocity, With<PlayerCharacter>>,
     damage_tile_query: Query<&DamageTile>,
 ) {
-    match player_query.single() {
-        Ok((_, _, Some(_))) => {
-            println!("can't touch me!");
-            return;
-        }
-        Ok((player_entity, controller_output, _)) => {
-            for collision in &controller_output.collisions {
-                if let Ok(damage_tile) = damage_tile_query.get(collision.entity) {
-                    match (
-                        health_query.get_mut(player_entity),
-                        velocity_query.get_mut(player_entity),
-                    ) {
-                        (Ok(mut player_health), Ok(mut player_velocity)) => {
-                            if player_health.current > 0 {
-                                player_health.current -= damage_tile.damage_amount as u32;
-                                commands
-                                    .entity(player_entity)
-                                    .insert(Invincibility::new(1.9));
-                            }
+    // Skip silently if the player isn't spawned yet (e.g., the first frame
+    // of LevelLoaded before the spawn commands flush) or if they're already
+    // invincible from a recent hit.
+    let Ok((player_entity, controller_output, invincibility)) = player_query.single() else {
+        return;
+    };
+    if invincibility.is_some() {
+        return;
+    }
 
-                            let n = collision.hit.details.unwrap().normal2; // Vec2 válido si usas la versión actual
-                            let v = player_velocity.velocity;
-                            let reflected = v - 2.0 * v.dot(n) * n;
-                            player_velocity.velocity = reflected * 0.9; // 90% de energía del rebote
-                        }
-                        _ => {}
-                    }
-                }
-            }
+    for collision in &controller_output.collisions {
+        let Ok(damage_tile) = damage_tile_query.get(collision.entity) else {
+            continue;
+        };
+        let Ok(mut player_health) = health_query.get_mut(player_entity) else {
+            continue;
+        };
+        let Ok(mut player_velocity) = velocity_query.get_mut(player_entity) else {
+            continue;
+        };
+
+        if player_health.current > 0 {
+            player_health.current -= damage_tile.damage_amount as u32;
+            commands
+                .entity(player_entity)
+                .insert(Invincibility::new(1.9));
         }
-        Err(_) => {
-            println!("Player entity not found");
-            return;
+
+        let Some(details) = collision.hit.details else {
+            continue;
+        };
+        let n = details.normal2;
+        let v = player_velocity.velocity;
+        let reflected = v - 2.0 * v.dot(n) * n;
+        player_velocity.velocity = reflected * 0.9;
+    }
+}
+
+/// Fires a `LevelCompleteEvent` the first time the player overlaps an
+/// `EndLevel` tile. The tile is a sensor, so the player walks through it
+/// rather than being blocked. Only one event is emitted per collision frame,
+/// even if multiple tile collisions arrive simultaneously.
+pub fn end_level_trigger_system(
+    mut collision_events: EventReader<CollisionEvent>,
+    mut level_complete: EventWriter<LevelCompleteEvent>,
+    player_query: Query<Entity, With<PlayerCharacter>>,
+    tile_query: Query<&TileProperties>,
+) {
+    let Ok(player_entity) = player_query.single() else {
+        return;
+    };
+
+    for event in collision_events.read() {
+        let CollisionEvent::Started(e1, e2, _) = event else {
+            continue;
+        };
+        let other = if *e1 == player_entity {
+            *e2
+        } else if *e2 == player_entity {
+            *e1
+        } else {
+            continue;
+        };
+
+        if let Ok(props) = tile_query.get(other) {
+            if props.tile_type == TileType::EndLevel {
+                level_complete.write(LevelCompleteEvent);
+                return;
+            }
         }
     }
 }

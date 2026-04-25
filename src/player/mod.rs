@@ -5,7 +5,7 @@ pub mod bundle; // Declara el submódulo bundle.rs
 pub mod components; // Declara el submódulo components.rs
 pub mod systems; // Declara el submódulo systems.rs // Declara el submódulo assets.rs
 
-use crate::game_state::GameState;
+use crate::game_state::{GameState, LevelState};
 use crate::map::ONE_WAY_PLATFORM_GROUP;
 use crate::map::assets::GameAssets;
 use crate::physics::{AffectedByGravity, Mass, Velocity};
@@ -19,8 +19,8 @@ use crate::player::{
 };
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::{
-    ActiveEvents, Collider, CollisionGroups, Group, KinematicCharacterController, RigidBody,
-    Velocity as RapierVelocity,
+    ActiveCollisionTypes, ActiveEvents, Collider, CollisionGroups, Group,
+    KinematicCharacterController, RigidBody, Velocity as RapierVelocity,
 };
 
 // Esta función añadirá todos los sistemas del jugador a la aplicación
@@ -28,9 +28,12 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_player_assets)
+        // Player lifecycle is tied to LevelState: assets load on Loading,
+        // character spawns on LevelLoaded, and all of it despawns on exit —
+        // so changing level mid-game cleanly tears down and rebuilds.
+        app.add_systems(OnEnter(LevelState::Loading), load_player_assets)
             .add_systems(
-                OnEnter(GameState::Game),
+                OnEnter(LevelState::LevelLoaded),
                 (
                     spawn_player_character.after(load_player_assets),
                     spawn_player_hearts.after(spawn_player_character),
@@ -39,21 +42,24 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
-                    character_input_handling, // Maneja la entrada y visibilidad de los sprites
+                    character_input_handling,
                     player_input_system,
-                    execute_animations,   // Anima los sprites visibles
-                    player_bounds_system, // Aplica límites de mapa al player
+                    execute_animations,
+                    player_bounds_system,
                     reset_jumps,
                     update_player_life,
                     animate_hearts,
                     invincibility_system,
+                    knockback_system,
                     check_player_death,
                     handle_gameover_timer,
                 )
                     .run_if(in_state(GameState::Game)),
             )
-            .add_systems(OnExit(GameState::Game), despawn_player)
-            .add_systems(OnExit(GameState::Game), despawn_hearts);
+            .add_systems(
+                OnExit(LevelState::LevelLoaded),
+                (despawn_player, despawn_hearts),
+            );
     }
 }
 
@@ -206,7 +212,13 @@ fn spawn_player_character(
         .insert(Health::default())
         .insert(DoubleJump::default())
         .insert(Velocity::default())
-        .insert(ActiveEvents::COLLISION_EVENTS);
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        // Rapier's default ActiveCollisionTypes only reports pairs involving
+        // a Dynamic body. The player is Kinematic, and so are every enemy,
+        // projectile, and collectible — plus EndLevel tiles are Fixed. Without
+        // this, none of those collisions fire `CollisionEvent::Started`, so
+        // damage, pickups, and the level-complete trigger all go silent.
+        .insert(ActiveCollisionTypes::all());
 }
 
 // Puedes definir constantes aquí o en un submódulo de constantes si tienes muchas

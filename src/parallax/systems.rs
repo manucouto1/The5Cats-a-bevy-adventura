@@ -10,67 +10,27 @@ use crate::{
     player::components::PlayerCharacter,
 };
 
-// Sistema de parallax con repetición infinita usando wrapping matemático
+/// Repositions every parallax layer relative to the camera each frame.
+///
+/// The mesh is sized to comfortably exceed the viewport (see
+/// `PARALLAX_MESH_*` constants in `parallax/mod.rs`), so we don't need any
+/// smoothing or modular wrapping — a direct `mesh_x = camera_x * (1 - scroll)`
+/// gives the parallax slide without the layer's edge ever entering view
+/// within typical level scroll ranges.
 pub fn infinite_parallax_system(
-    time: Res<Time>,
     camera_query: Query<&Transform, With<MainCamera>>,
-    mut parallax_query: Query<(&mut Transform, &mut ParallaxLayer), Without<MainCamera>>,
+    mut parallax_query: Query<(&mut Transform, &ParallaxLayer), Without<MainCamera>>,
 ) {
     let Ok(camera_transform) = camera_query.single() else {
         return;
     };
+    let cam_x = camera_transform.translation.x;
+    let cam_y = camera_transform.translation.y;
 
-    let camera_translation = camera_transform.translation;
-
-    for (mut layer_transform, mut parallax_layer) in parallax_query.iter_mut() {
-        let camera_offset = camera_translation - parallax_layer.start_position;
-
-        // Calcular la nueva posición objetivo con parallax
-        let target_x = parallax_layer.start_position.x
-            + camera_offset.x * (1.0 - parallax_layer.scroll_factor.x);
-        let target_y = parallax_layer.start_position.y
-            + camera_offset.y * (1.0 - parallax_layer.scroll_factor.y);
-
-        // Aplicar suavizado para evitar artefactos
-        let smoothing_factor = parallax_layer.smoothing_factor;
-        let t = (smoothing_factor * time.delta_secs()).min(1.0);
-
-        let current_x = layer_transform.translation.x;
-        let current_y = layer_transform.translation.y;
-
-        let smooth_x = current_x + (target_x - current_x) * t;
-        let smooth_y = current_y + (target_y - current_y) * t;
-
-        // Implementar repetición infinita con wrapping matemático
-        let layer_width = parallax_layer.layer_width;
-
-        // Calcular la posición wrapeada usando módulo
-        let wrapped_x = ((smooth_x % layer_width) + layer_width) % layer_width;
-
-        // Ajustar para centrar el wrapping alrededor de la posición de la cámara
-        let camera_x = camera_translation.x;
-        let camera_relative_pos = ((camera_x % layer_width) + layer_width) % layer_width;
-
-        // Calcular offset desde la cámara
-        let mut offset_from_camera = wrapped_x - camera_relative_pos;
-
-        // Ajustar para mantener la imagen siempre visible
-        if offset_from_camera > layer_width / 2.0 {
-            offset_from_camera -= layer_width;
-        } else if offset_from_camera < -layer_width / 2.0 {
-            offset_from_camera += layer_width;
-        }
-
-        // Posición final
-        let final_x = camera_x + offset_from_camera;
-
-        layer_transform.translation.x = final_x;
-        layer_transform.translation.y = smooth_y;
-        layer_transform.translation.z = parallax_layer.start_position.z;
-
-        // Actualizar el offset actual
-        parallax_layer.current_offset.x = final_x;
-        parallax_layer.current_offset.y = smooth_y;
+    for (mut tf, layer) in parallax_query.iter_mut() {
+        tf.translation.x = cam_x * (1.0 - layer.scroll_factor.x);
+        tf.translation.y = cam_y;
+        tf.translation.z = layer.start_position.z;
     }
 }
 
@@ -148,10 +108,25 @@ pub fn camera_follow_system(
                 smooth_x.clamp(camera_min_x, camera_max_x)
             };
 
-            // Aplicar las posiciones finales con límites horizontales
             camera_transform.translation.x = clamped_x;
-            // Mantener Y fijo o seguir al jugador sin límites verticales
-            // camera_transform.translation.y = current_pos.y + (target_pos.y - current_pos.y) * t;
+
+            // Vertical follow with the same clamp-to-map logic as X. Needed
+            // for level 4's tall vertical scroller; on shorter levels the
+            // clamp centers the camera and Y stays stable.
+            let camera_half_height = window.height() / 2.0;
+            let map_height_px = game_assets.map_height_tiles as f32 * game_assets.tile_size_px;
+            let map_top = map_height_px / 2.0;
+            let map_bottom = -map_height_px / 2.0;
+            let camera_min_y = map_bottom + camera_half_height;
+            let camera_max_y = map_top - camera_half_height;
+
+            let smooth_y = current_pos.y + (target_pos.y - current_pos.y) * t;
+            let clamped_y = if camera_max_y <= camera_min_y {
+                (map_bottom + map_top) / 2.0
+            } else {
+                smooth_y.clamp(camera_min_y, camera_max_y)
+            };
+            camera_transform.translation.y = clamped_y;
         }
     }
 }

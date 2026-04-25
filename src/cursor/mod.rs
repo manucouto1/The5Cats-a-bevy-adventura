@@ -7,10 +7,13 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use crate::{
     cursor::{
         assets::{CursorAssets, load_assets},
-        components::{Crosshair, WoolBall},
-        systems::{handle_projectile_despawn, spawn_projectile_on_click, update_aim_assist},
+        components::Crosshair,
+        systems::{
+            boss_damage_system, boss_follow_hero_system, handle_projectile_despawn,
+            spawn_projectile_on_click, update_aim_assist, wool_ball_damage_system,
+        },
     },
-    game_state::GameState,
+    game_state::{GameState, LevelState},
     map::assets::GameAssets,
     player::assets::HeroData,
 };
@@ -19,9 +22,13 @@ pub struct CursorPlugin;
 
 impl Plugin for CursorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_assets)
+        // Cursor lifecycle is tied to LevelState: assets load on Loading
+        // (so HeroData/GameAssets are ready), the crosshair spawns on
+        // LevelLoaded, despawns on exit. Otherwise `OnEnter(GameState::Game)`
+        // could race `OnEnter(LevelState::Loading)` and miss the resources.
+        app.add_systems(OnEnter(LevelState::Loading), load_assets)
             .add_systems(
-                OnEnter(GameState::Game),
+                OnEnter(LevelState::LevelLoaded),
                 (spawn_aim_assist, hide_system_cursor),
             )
             .add_systems(OnEnter(GameState::MainMenu), show_system_cursor)
@@ -31,11 +38,20 @@ impl Plugin for CursorPlugin {
                 (
                     update_aim_assist,
                     spawn_projectile_on_click.after(update_aim_assist),
-                    handle_projectile_despawn.after(spawn_projectile_on_click),
+                    // wool_ball_damage_system (filters !FinalBoss) and
+                    // boss_damage_system (FinalBoss only) consume the same
+                    // CollisionEvent queue but on disjoint entity sets, so
+                    // they can run in parallel.
+                    wool_ball_damage_system.after(spawn_projectile_on_click),
+                    boss_damage_system.after(spawn_projectile_on_click),
+                    boss_follow_hero_system,
+                    handle_projectile_despawn
+                        .after(wool_ball_damage_system)
+                        .after(boss_damage_system),
                 )
                     .run_if(in_state(GameState::Game)),
             )
-            .add_systems(OnExit(GameState::Game), despawn_cursor);
+            .add_systems(OnExit(LevelState::LevelLoaded), despawn_cursor);
     }
 }
 

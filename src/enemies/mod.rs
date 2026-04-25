@@ -5,15 +5,20 @@ use crate::{
         assets::load_enemy_assets,
         bundle::EnemyBundle,
         components::{
-            ActiveLevenData, Chase, ContactDamage, EnemyAssets, EnemyCharacter, EnemyState,
-            EnemyType, Patrol, RangedAttack, RangedAttackType, Teleport,
+            ActiveLevenData, ContactDamage, EnemyAssets, EnemyCharacter, EnemyState, EnemyType,
+            FanShot, FinalBoss, Patrol, TurretShot,
+        },
+        systems::{
+            ProjectilePool, activator_system, enemy_damage_system, enemy_facing_sprite_system,
+            fan_shot_system, patrol_system, projectile_lifetime_system, setup_projectile_pool,
+            teardown_projectile_pool, turret_shot_system,
         },
     },
-    game_state::GameState,
+    game_state::{GameState, LevelState},
     map::assets::GameAssets,
     physics::{AffectedByGravity, Mass, Velocity},
     player::components::{
-        AnimationIndices, CharacterIdleSprite, CharacterLeftSprite, CharacterRightSprite,
+        AnimationIndices, CharacterIdleSprite, CharacterLeftSprite, CharacterRightSprite, Health,
     },
 };
 use bevy::prelude::*;
@@ -29,12 +34,36 @@ pub struct EnemiesPlugin;
 
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_enemy_assets)
+        app.init_resource::<ProjectilePool>()
+            .add_systems(OnEnter(LevelState::Loading), load_enemy_assets)
             .add_systems(
-                OnEnter(GameState::Game),
-                spawn_enemies_characters.after(load_enemy_assets),
+                OnEnter(LevelState::LevelLoaded),
+                (
+                    spawn_enemies_characters.after(load_enemy_assets),
+                    setup_projectile_pool,
+                ),
             )
-            .add_systems(OnExit(GameState::Game), despawn_enemies);
+            .add_systems(
+                Update,
+                (
+                    // activator runs first so the `With<Active>` filters on
+                    // the other systems see the up-to-date marker set.
+                    activator_system,
+                    patrol_system,
+                    turret_shot_system,
+                    fan_shot_system,
+                    projectile_lifetime_system,
+                    enemy_damage_system,
+                    enemy_facing_sprite_system,
+                )
+                    .chain()
+                    .run_if(in_state(GameState::Game))
+                    .run_if(in_state(LevelState::LevelLoaded)),
+            )
+            .add_systems(
+                OnExit(LevelState::LevelLoaded),
+                (despawn_enemies, teardown_projectile_pool),
+            );
     }
 }
 pub fn despawn_enemies(mut commands: Commands, query: Query<Entity, With<EnemyCharacter>>) {
@@ -80,7 +109,26 @@ pub fn spawn_enemies_characters(
 
             let mut enemy_entity = commands.spawn(EnemyBundle::new(transform.translation));
 
+            // Per-type starting HP (pygame `self.life`): Dummy=1, Fufi=2,
+            // Catcifer=1, boss=18 (first phase). Other variants default to 1.
+            let hp = match enemy_type {
+                EnemyType::Dummy => 1,
+                EnemyType::Fufi => 2,
+                EnemyType::Catcifer => 1,
+                EnemyType::KiddCat => 18,
+                _ => 1,
+            };
+
+            // Rolling enemies (Dummy) ship a single walking sheet for both
+            // directions — see enemies/assets.rs. Animating it the same way
+            // for left and right makes the cat appear to roll in only one
+            // direction. When the L and R handles are the same, mirror the
+            // left sprite so the rotation reads as moving with the body.
+            let mirror_left = enemy_asset.texture_left == enemy_asset.texture_right;
+
             enemy_entity
+                .insert(enemy_type.clone())
+                .insert(Health { current: hp, max: hp })
                 .with_children(|parent| {
                     parent.spawn((
                         Sprite {
@@ -89,6 +137,7 @@ pub fn spawn_enemies_characters(
                                 layout: texture_atlas_layout.clone(),
                                 index: 0,
                             }),
+                            flip_x: mirror_left,
                             ..default()
                         },
                         sprite_transform,
@@ -142,37 +191,63 @@ pub fn spawn_enemies_characters(
                         .insert(EnemyState::Patrolling)
                         .insert(Patrol {
                             speed: 50.0,
-                            direction: 1,
+                            direction: -1, // pygame EnemyDummy starts facing LEFT
                         })
                         .insert(ContactDamage { amount: 1 });
                 }
                 EnemyType::Fufi => {
+                    // Pygame EnemyTurretShooter: 3 aimed shots ~0.09s apart, 2.88s cooldown, 300px.
+                    let mut burst_interval =
+                        Timer::new(Duration::from_millis(90), TimerMode::Once);
+                    burst_interval.tick(burst_interval.duration()); // ready on first frame in range
+                    let mut cooldown = Timer::new(Duration::from_millis(2880), TimerMode::Once);
+                    cooldown.tick(cooldown.duration());
                     enemy_entity
-                        .insert(EnemyState::Chasing)
-                        .insert(Chase {
-                            speed: 80.0,
-                            range: 400.0,
-                        })
-                        .insert(RangedAttack {
-                            attack_type: RangedAttackType::SingleShot,
-                            range: 350.0,
-                            timer: Timer::new(Duration::from_secs(2), TimerMode::Repeating),
+                        .insert(EnemyState::Idle)
+                        .insert(TurretShot {
+                            range: 300.0,
+                            shots_per_burst: 3,
+                            shots_remaining: 0,
+                            burst_interval_timer: burst_interval,
+                            cooldown_timer: cooldown,
                         });
                 }
                 EnemyType::Catcifer => {
+                    // Pygame Maniac: fires 16-ray fan every ~2s while hero within 300px.
                     enemy_entity
                         .insert(EnemyState::Idle)
-                        .insert(RangedAttack {
-                            attack_type: RangedAttackType::FanShot,
+                        .insert(FanShot {
                             range: 300.0,
-                            timer: Timer::new(Duration::from_secs(3), TimerMode::Repeating),
-                        })
-                        .insert(Teleport {
-                            trigger_distance: 100.0,
-                            timer: Timer::new(Duration::from_secs(5), TimerMode::Repeating),
+                            rays: 16,
+                            cooldown_timer: Timer::new(
+                                Duration::from_secs(2),
+                                TimerMode::Repeating,
+                            ),
                         });
                 }
-                // Añadir casos para otros enemigos si es necesario
+                EnemyType::KiddCat => {
+                    // Final boss phase 1: patrols its platform and fires
+                    // Fufi-style aimed bursts. `boss_damage_system` will
+                    // swap behavior when phases advance.
+                    let mut burst = Timer::new(Duration::from_millis(120), TimerMode::Once);
+                    burst.tick(burst.duration());
+                    let mut cooldown = Timer::new(Duration::from_millis(2500), TimerMode::Once);
+                    cooldown.tick(cooldown.duration());
+                    enemy_entity
+                        .insert(EnemyState::Patrolling)
+                        .insert(Patrol {
+                            speed: 40.0,
+                            direction: -1,
+                        })
+                        .insert(FinalBoss::default())
+                        .insert(TurretShot {
+                            range: 500.0,
+                            shots_per_burst: 3,
+                            shots_remaining: 0,
+                            burst_interval_timer: burst,
+                            cooldown_timer: cooldown,
+                        });
+                }
                 _ => {
                     enemy_entity.insert(EnemyState::Idle);
                 }

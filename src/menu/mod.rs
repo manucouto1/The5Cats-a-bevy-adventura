@@ -85,15 +85,16 @@ fn menu_button_system(
     mut app_exit_events: EventWriter<AppExit>,
     mut next_game_state: ResMut<NextState<GameState>>,
     mut next_level_state: ResMut<NextState<LevelState>>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
 ) {
     for (interaction, menu_button_action, mut background_color, original_color, mut transform) in
         &mut interaction_query
     {
         match *interaction {
             Interaction::Pressed => {
-                // Al presionar, cambiamos el color y reseteamos la escala a la original
                 *background_color = PRESSED_BUTTON_COLOR.into();
                 transform.scale = Vec3::ONE;
+                sfx.write(crate::audio::SfxEvent::ButtonClick);
 
                 // Llama a la acción correspondiente del botón
                 match menu_button_action {
@@ -113,19 +114,14 @@ fn menu_button_system(
                         app_exit_events.write(AppExit::Success);
                     }
                 }
-                print!("Pressed button!");
             }
             Interaction::Hovered => {
-                // Al hacer hover, restauramos el color original y aplicamos la transformación de escala
                 *background_color = original_color.0;
                 transform.scale = Vec3::splat(HOVERED_BUTTON_SCALE);
-                println!("Hovered button!");
             }
             Interaction::None => {
-                // Sin interacción, restauramos el color y la escala a sus valores originales
                 *background_color = original_color.0;
                 transform.scale = Vec3::ONE;
-                println!("None button!");
             }
         }
     }
@@ -136,12 +132,10 @@ fn check_menu_assets_loaded(
     menu_assets: Res<MenuAssets>,
     mut next_menu_state: ResMut<NextState<MenuLoadingState>>,
 ) {
-    println!("Checking...");
     if asset_server.is_loaded_with_dependencies(&menu_assets.background)
         && asset_server.is_loaded_with_dependencies(&menu_assets.text_font)
         && asset_server.is_loaded_with_dependencies(&menu_assets.title_font)
     {
-        println!("Menu assets loaded!");
         next_menu_state.set(MenuLoadingState::Ready);
     }
 }

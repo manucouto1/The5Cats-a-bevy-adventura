@@ -8,9 +8,6 @@ pub enum MenuLoadingState {
 }
 
 #[derive(Component)]
-pub struct OnMainMenuScreen;
-
-#[derive(Component)]
 pub enum MenuButtonAction {
     Play,
     Controls,

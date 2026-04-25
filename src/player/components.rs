@@ -70,9 +70,8 @@ impl Default for DoubleJump {
     }
 }
 
-pub const GRAVITY: f32 = 9.81; // m/s² - aceleración gravitacional terrestre
-pub const JUMP_FORCE: f32 = 500.0; // Newtons - fuerza de salto hacia arriba
-pub const HORIZONTAL_FORCE: f32 = 200.0; // Newtons - fuerza de movimiento lateral
+pub const JUMP_FORCE: f32 = 500.0;
+pub const HORIZONTAL_FORCE: f32 = 200.0;
 
 #[derive(Component)]
 pub struct Invincibility {
@@ -80,6 +79,22 @@ pub struct Invincibility {
 }
 
 impl Invincibility {
+    pub fn new(duration: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(duration, TimerMode::Once),
+        }
+    }
+}
+
+/// Brief stun applied when an enemy or projectile hits the player. While
+/// present, `player_input_system` skips horizontal input so the knockback
+/// velocity isn't overwritten on the next frame.
+#[derive(Component)]
+pub struct Knockback {
+    pub timer: Timer,
+}
+
+impl Knockback {
     pub fn new(duration: f32) -> Self {
         Self {
             timer: Timer::from_seconds(duration, TimerMode::Once),

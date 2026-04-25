@@ -3,14 +3,18 @@ use std::fs;
 use bevy::{platform::collections::HashMap, prelude::*};
 
 use crate::enemies::components::{ActiveLevenData, EnemyAssetSet, EnemyAssets, EnemyType};
+use crate::game_state::CurrentLevel;
 
-// Un Resource para contener las handles de los assets del jugador
-
-pub fn load_enemy_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn load_enemy_assets(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    current_level: Res<CurrentLevel>,
+) {
     let mut map = HashMap::new();
 
-    let level_json_path = "assets/levels/level1/level1_active_object.json";
-    let json_string = fs::read_to_string(level_json_path).expect("Failed to read level JSON");
+    let paths = current_level.0.get_path();
+    let json_string =
+        fs::read_to_string(&paths.active_objects).expect("Failed to read level JSON");
     let enemies_level_data: ActiveLevenData =
         serde_json::from_str(&json_string).expect("Failed to parse level JSON");
     map.insert(

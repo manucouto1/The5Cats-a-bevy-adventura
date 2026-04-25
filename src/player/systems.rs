@@ -6,8 +6,8 @@ use crate::{
         ANIMATION_FPS,
         components::{
             AnimationIndices, CharacterIdleSprite, CharacterLeftSprite, CharacterRightSprite,
-            DoubleJump, HORIZONTAL_FORCE, Health, Invincibility, JUMP_FORCE, PlayerCharacter,
-            PlayerHearts,
+            DoubleJump, HORIZONTAL_FORCE, Health, Invincibility, JUMP_FORCE, Knockback,
+            PlayerCharacter, PlayerHearts,
         },
     },
 };
@@ -25,11 +25,19 @@ pub fn player_input_system(
             &mut Velocity,
             &KinematicCharacterControllerOutput,
             &mut DoubleJump,
+            Has<Knockback>,
         ),
         With<PlayerCharacter>,
     >,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
 ) {
-    for (mut velocity, output, mut double_jump) in &mut query {
+    for (mut velocity, output, mut double_jump, knocked) in &mut query {
+        // Knockback overrides input briefly so the impulse from a hit isn't
+        // wiped on the next frame. Jumps are also locked while stunned.
+        if knocked {
+            continue;
+        }
+
         // Movimiento lateral (sin acumulación, directo)
         let mut horizontal = 0.0;
         if keyboard.pressed(KeyCode::ArrowLeft) || keyboard.pressed(KeyCode::KeyA) {
@@ -46,6 +54,7 @@ pub fn player_input_system(
             if output.grounded || double_jump.jumps_remaining > 0 {
                 velocity.velocity.y = JUMP_FORCE;
                 double_jump.jumps_remaining -= 1;
+                sfx.write(crate::audio::SfxEvent::Jump);
             }
         }
     }
@@ -88,15 +97,16 @@ pub fn check_player_death(
     player_query: Query<&Health, (With<PlayerCharacter>, Changed<Health>)>,
     mut commands: Commands,
     game_over_timer: Option<Res<GameOverTimer>>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
 ) {
     let Ok(player_health) = player_query.single() else {
         return;
     };
     if player_health.current == 0 {
-        // Solo inserta el temporizador si no existe ya
         if game_over_timer.is_none() {
             println!("La vida del jugador llegó a cero. Esperando 2 segundos...");
             commands.insert_resource(GameOverTimer(Timer::from_seconds(2.0, TimerMode::Once)));
+            sfx.write(crate::audio::SfxEvent::Die);
         }
     }
 }
@@ -232,10 +242,22 @@ pub fn invincibility_system(
     mut query: Query<(Entity, &mut Invincibility), With<PlayerCharacter>>,
 ) {
     for (entity, mut invincibility) in query.iter_mut() {
-        println!("Hell yea i'm invincible!");
         invincibility.timer.tick(time.delta());
         if invincibility.timer.finished() {
             commands.entity(entity).remove::<Invincibility>();
+        }
+    }
+}
+
+pub fn knockback_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut Knockback), With<PlayerCharacter>>,
+) {
+    for (entity, mut knockback) in query.iter_mut() {
+        knockback.timer.tick(time.delta());
+        if knockback.timer.finished() {
+            commands.entity(entity).remove::<Knockback>();
         }
     }
 }

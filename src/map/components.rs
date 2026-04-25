@@ -3,8 +3,6 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-use crate::game_state::LevelPaths;
-
 // Estructuras para deserializar el JSON del nivel
 #[derive(Debug, Deserialize, Resource)] // Añadimos Resource aquí
 pub struct LevelData {
@@ -42,14 +40,6 @@ pub enum TileType {
     PipeBottomRight, // Pipe en esquina inferior derecha
     Bouncy,          // Plataforma que rebota al chocar con el player
     EndLevel,        // Tile que marca el final del nivel
-}
-
-// Enum para objetos pasivos coleccionables
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollectibleType {
-    Heart,      // Corazón que recupera vida
-    YarnBall,   // Ovillo de lana que da puntos
-    BoneCookie, // Galleta de hueso que aplica boost
 }
 
 // Propiedades para tiles
@@ -145,59 +135,27 @@ impl TileProperties {
     }
 }
 
-// Propiedades para objetos coleccionables
-#[derive(Component, Debug, Clone)]
-pub struct CollectibleProperties {
-    pub collectible_type: CollectibleType,
-    pub health_restore: i32,   // Cantidad de vida que restaura
-    pub points_value: i32,     // Puntos que otorga
-    pub boost_duration: f32,   // Duración del boost en segundos
-    pub boost_multiplier: f32, // Multiplicador del boost
-}
-
-impl CollectibleProperties {
-    pub fn heart(health_amount: i32) -> Self {
-        CollectibleProperties {
-            collectible_type: CollectibleType::Heart,
-            health_restore: health_amount,
-            points_value: 0,
-            boost_duration: 0.0,
-            boost_multiplier: 1.0,
-        }
-    }
-
-    pub fn yarn_ball(points: i32) -> Self {
-        CollectibleProperties {
-            collectible_type: CollectibleType::YarnBall,
-            health_restore: 0,
-            points_value: points,
-            boost_duration: 0.0,
-            boost_multiplier: 1.0,
-        }
-    }
-
-    pub fn bone_cookie(duration: f32, multiplier: f32) -> Self {
-        CollectibleProperties {
-            collectible_type: CollectibleType::BoneCookie,
-            health_restore: 0,
-            points_value: 0,
-            boost_duration: duration,
-            boost_multiplier: multiplier,
-        }
-    }
-}
-
-// Mapeo basado en el path del JSON a propiedades específicas
+/// Maps a layer's `path` string (from the level JSON) to the tile properties
+/// that describe how the tile behaves (collider, damage, falling, etc.).
+///
+/// Two layer-naming conventions exist in the source assets:
+/// - Level 1 uses short names (`ground`, `damage`, `falling`, `bouncy`, …).
+/// - Levels 2-4 use pygame class paths (`src.sprites.passive.platform.Platform`).
+/// We recognize both. Unknown paths return `None` (treated as backdrop).
 pub fn get_tile_properties_from_path(path: &str) -> Option<TileProperties> {
     match path {
-        "solid" | "ground" | "box" => Some(TileProperties::solid()),
-        "falling" | "falling_platform" => Some(TileProperties::falling()),
+        "solid" | "ground" | "box" | "src.sprites.passive.platform.Platform" => {
+            Some(TileProperties::solid())
+        }
+        "falling"
+        | "falling_platform"
+        | "src.sprites.passive.platform.FallingPlatform" => Some(TileProperties::falling()),
         "damage" | "spikes" | "hurt" => Some(TileProperties::damage(1)),
         "pipe_left" | "pipe_bottom_left" => Some(TileProperties::pipe_bottom_left()),
         "pipe_right" | "pipe_bottom_right" => Some(TileProperties::pipe_bottom_right()),
         "bouncy" | "bouncy_platform" | "moving_platform" => Some(TileProperties::bouncy()),
         "end_level" => Some(TileProperties::end_level()),
-        _ => None, // Tiles de fondo o sin propiedades especiales
+        _ => None,
     }
 }
 
@@ -228,26 +186,6 @@ impl Default for FallingTile {
             fall_timer: Timer::from_seconds(1.5, TimerMode::Once),
             original_position: Vec3::ZERO,
             shake_intensity: 2.0,
-        }
-    }
-}
-
-// Componente para objetos coleccionables
-#[derive(Component, Debug)]
-pub struct CollectibleItem {
-    pub properties: CollectibleProperties,
-    pub collected: bool,
-    pub bob_timer: Timer,   // Para animación de flotación
-    pub bob_amplitude: f32, // Amplitud del movimiento de flotación
-}
-
-impl Default for CollectibleItem {
-    fn default() -> Self {
-        CollectibleItem {
-            properties: CollectibleProperties::yarn_ball(10),
-            collected: false,
-            bob_timer: Timer::from_seconds(2.0, TimerMode::Repeating),
-            bob_amplitude: 5.0,
         }
     }
 }
@@ -286,7 +224,3 @@ impl Default for BouncyPlatform {
     }
 }
 
-#[derive(Resource)]
-pub struct CurrentLevelInfo {
-    pub data: LevelPaths,
-}
