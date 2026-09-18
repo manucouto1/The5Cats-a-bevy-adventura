@@ -1,5 +1,7 @@
 # 5Gatos — Bevy edition
 
+[![Play on itch.io](https://img.shields.io/badge/itch.io-play-fa5c5c?logo=itchdotio&logoColor=white)](https://manucouto1.itch.io/the5cats)
+
 ![Game Screenshot](snapshots/Level%20one.png)
 
 ---
@@ -19,8 +21,7 @@ free fall down a shaft full of cats, and a last stand at the bottom.
 
 ## ▶️ Play it
 
-On itch.io: **<https://itch.io/>** _(add the page URL once it is
-published)_.
+Play it on itch.io: **<https://manucouto1.itch.io/the5cats>**
 
 Packaging scripts, one per platform, all writing into `dist/`:
 

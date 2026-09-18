@@ -1,5 +1,7 @@
 # itch.io page copy
 
+The page: <https://manucouto1.itch.io/the5cats>
+
 Paste-ready text for the store page, plus what to upload and how.
 
 ## Title
@@ -40,8 +42,8 @@ Computer Engineering, rebuilt from scratch in Rust with the
   and asset pipeline
 - Physics: [bevy_rapier2d](https://rapier.rs)
 - Tilemaps: [Tilesetter](https://led.itch.io/tilesetter)
-- Source: <https://github.com/…/The5Cats-a-bevy-adventura> (GPLv3; art and
-  music CC-BY-NC 4.0)
+- Source: <https://github.com/manucouto1/The5Cats-a-bevy-adventura> (GPLv3; art and music
+  CC-BY-NC 4.0)
 - Original Pygame version made with classmates
 
 ## Metadata to set on the page
@@ -56,18 +58,29 @@ Computer Engineering, rebuilt from scratch in Rust with the
 
 ## Uploading
 
-`scripts/package-macos.sh` builds the release and writes
-`dist/5Gatos-macos.zip` (a `.app` bundle, so players double-click it).
+One script per platform, each writing into `dist/`:
 
-Then either drag the zip into the page's "Uploads" and tick **macOS**, or
-use [butler](https://itch.io/docs/butler/):
+| Script | Upload | itch channel | Tick |
+|---|---|---|---|
+| `scripts/package-macos.sh` | `5Gatos-macos.zip` | `osx` | macOS |
+| `scripts/package-windows.sh` | `5Gatos-windows.zip` | `windows` | Windows |
+| `scripts/package-linux.sh` | `5Gatos-linux-x86_64.tar.gz` | `linux` | Linux |
+
+Drag them into the page's "Uploads" and tick the platform on each, or use
+[butler](https://itch.io/docs/butler/):
 
 ```bash
-butler push dist/5Gatos-macos.zip <your-itch-user>/5gatos:osx
+butler push dist/5Gatos-macos.zip        manucouto1/the5cats:osx
+butler push dist/5Gatos-windows.zip      manucouto1/the5cats:windows
+butler push dist/5Gatos-linux-x86_64.tar.gz manucouto1/the5cats:linux
 ```
 
-Two things worth saying on the page: the build is **unsigned**, so the
-first launch needs right-click → Open (or
-`xattr -dr com.apple.quarantine 5Gatos.app`), and it is **macOS only** for
-now — Windows and Linux builds need to be cross-compiled, and a browser
-build needs the level loading moved off `std::fs` first.
+Worth saying on the page: neither the macOS nor the Windows build is
+**signed**. macOS needs right-click → Open the first time (or
+`xattr -dr com.apple.quarantine 5Gatos.app`), and Windows shows an
+"unknown publisher" warning — More info → Run anyway.
+
+There is also `scripts/package-web.sh`, which produces a browser build
+(`dist/5Gatos-web.zip`, upload as HTML with "This file will be played in
+the browser" ticked). It is **not ready to publish**: the game runs but the
+parallax backgrounds do not draw in the browser.
