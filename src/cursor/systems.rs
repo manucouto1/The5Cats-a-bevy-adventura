@@ -674,14 +674,28 @@ pub fn boss_arena_clamp_system(
 pub fn handle_projectile_despawn(
     mut commands: Commands,
     mut projectile_query: Query<(Entity, &mut Projectile)>,
+    players: Query<Entity, With<PlayerCharacter>>,
     mut collision_events: EventReader<CollisionEvent>,
     time: Res<Time>,
 ) {
+    let player = players.single().ok();
     for event in collision_events.read() {
         let CollisionEvent::Started(entity1, entity2, _) = event else {
             continue;
         };
-        for entity in [entity1, entity2] {
+        // Two balls brushing past each other is not an impact. The maniac
+        // burst spawns sixteen of them on a 30 px circle around Tofe, close
+        // enough that neighbours overlap on the very first frame, so
+        // counting that as a hit cut every ray's life short and none of them
+        // ever reached an enemy.
+        if projectile_query.contains(*entity1) && projectile_query.contains(*entity2) {
+            continue;
+        }
+        for (entity, other) in [(entity1, entity2), (entity2, entity1)] {
+            // Neither is being thrown *at* the thrower.
+            if player.is_some_and(|p| p == *other) {
+                continue;
+            }
             let Ok((_, mut projectile)) = projectile_query.get_mut(*entity) else {
                 continue;
             };

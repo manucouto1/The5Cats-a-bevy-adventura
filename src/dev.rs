@@ -129,6 +129,7 @@ fn autoshot(
 //   kill                   set the player's HP to 0
 //   goal                   fire LevelCompleteEvent
 //   hat                    drop the end-game hat on the player (real win path)
+//   cookie                 drop a treat on the player (maniac mode)
 //   boss <phase>           put the boss into that phase (1-3) with 1 HP
 //   quit                   exit the app
 // ---------------------------------------------------------------------------
@@ -446,6 +447,17 @@ fn run_dev_script(
                         position: tf.translation,
                         pop: Vec2::ZERO,
                     });
+            }
+        }
+        ["cookie"] => {
+            for (_, tf) in &w.player {
+                w.spawn_collectible.write(
+                    crate::collectibles::components::SpawnCollectibleEvent {
+                        kind: crate::collectibles::components::Collectible::ManiacMode,
+                        position: tf.translation,
+                        pop: Vec2::ZERO,
+                    },
+                );
             }
         }
         ["goal"] => {
