@@ -179,7 +179,7 @@ pub fn load_level_zones(
 ) {
     let paths = current_level.0.get_path();
     commands.insert_resource(ActiveBand::default());
-    let Ok(raw) = std::fs::read_to_string(&paths.gaps) else {
+    let Some(raw) = crate::game_state::read_level_file(&paths.gaps) else {
         commands.insert_resource(LevelZones::default());
         return;
     };

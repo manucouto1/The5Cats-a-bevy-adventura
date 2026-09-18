@@ -81,6 +81,8 @@ pub fn spawn_map_edge_fade(
         MapEdgeFade,
         LevelTile,
         Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
+        // Camera-sized quad: same reason as the parallax layers.
+        bevy::render::view::NoFrustumCulling,
         MeshMaterial2d(materials.add(MapFadeMaterial {
             // Map is centered on the origin.
             bounds: Vec4::new(-map_w / 2.0, -map_h / 2.0, map_w / 2.0, map_h / 2.0),

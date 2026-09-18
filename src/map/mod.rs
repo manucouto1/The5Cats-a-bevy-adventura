@@ -254,7 +254,7 @@ pub fn spawn_level_events(
         None,
     ));
     let paths = current_level.0.get_path();
-    let Ok(raw) = std::fs::read_to_string(&paths.events) else {
+    let Some(raw) = crate::game_state::read_level_file(&paths.events) else {
         return; // missing events file is not fatal
     };
     let Ok(parsed): Result<EventsFile, _> = serde_json::from_str(&raw) else {

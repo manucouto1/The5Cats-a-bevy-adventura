@@ -14,6 +14,11 @@ rand = "0.8"
 # Already in the tree via bevy_image; used to write the R16Float SDF texture.
 half = "2.6"
 
+# The browser build needs `getrandom` wired to the JS crypto API; `rand`
+# pulls it in and has no other way to seed itself there.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [workspace]
 resolver = "2"
 

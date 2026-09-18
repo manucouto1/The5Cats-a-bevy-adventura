@@ -1,4 +1,3 @@
-use std::fs;
 
 use bevy::{platform::collections::HashMap, prelude::*};
 
@@ -13,7 +12,8 @@ pub fn load_enemy_assets(
     let mut map = HashMap::new();
 
     let paths = current_level.0.get_path();
-    let json_string = fs::read_to_string(&paths.active_objects).expect("Failed to read level JSON");
+    let json_string = crate::game_state::read_level_file(&paths.active_objects)
+        .expect("Failed to read level JSON");
     let enemies_level_data: ActiveLevenData =
         serde_json::from_str(&json_string).expect("Failed to parse level JSON");
     map.insert(

@@ -1,3 +1,7 @@
+// A release build on Windows is a GUI app: without this it is linked as a
+// console program and opens a terminal window behind the game.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod audio;
 mod collectibles;
 mod cursor;
@@ -44,6 +48,11 @@ use bevy_rapier2d::{
 /// folder is looked for next to the executable first (a zip) and then in a
 /// macOS bundle's `Contents/Resources` (a `.app`).
 pub fn asset_root() -> std::path::PathBuf {
+    // In the browser this is a URL path the asset server fetches from, and
+    // there is no executable to be next to.
+    if cfg!(target_arch = "wasm32") {
+        return std::path::PathBuf::from("assets");
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let beside = dir.join("assets");
@@ -177,36 +186,44 @@ fn fullscreen_toggle_system(
 }
 
 fn main() {
+    let default_plugins = DefaultPlugins
+        .build()
+        // Same folder the level JSONs are read from, so a packaged build
+        // finds its assets wherever it was unzipped, and the browser build
+        // fetches them from `assets/` next to the page.
+        .set(AssetPlugin {
+            file_path: asset_root().to_string_lossy().into_owned(),
+            ..default()
+        })
+        .set(ImagePlugin::default_nearest())
+        .set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "5Gatos".into(),
+                resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
+                resizable: true,
+                // The browser build takes over this canvas; native builds
+                // ignore it.
+                canvas: Some("#game".into()),
+                fit_canvas_to_parent: true,
+                ..default()
+            }),
+            ..default()
+        });
+
+    // Quitting from the menu hung the process about three runs in five:
+    // `RenderAppChannels`, the resource pipelined rendering keeps, blocks in
+    // its `Drop` waiting for the render sub-app to come back from the render
+    // thread, and on shutdown that hand-off may never arrive — the app then
+    // sits in `World::clear_all` forever with its window still up. Recording
+    // render commands on the main thread costs a fraction of a millisecond
+    // here and cannot deadlock. The plugin only exists where there are
+    // threads to pipeline across, so the browser build never sees it.
+    #[cfg(not(target_arch = "wasm32"))]
+    let default_plugins =
+        default_plugins.disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();
+
     App::new()
-        .add_plugins(
-            DefaultPlugins
-                .build()
-                // Same folder the level JSONs are read from, so a packaged
-                // build finds its assets wherever it was unzipped.
-                .set(AssetPlugin {
-                    file_path: asset_root().to_string_lossy().into_owned(),
-                    ..default()
-                })
-                // Quitting from the menu hung the process about three runs
-                // in five: `RenderAppChannels`, the resource pipelined
-                // rendering keeps, blocks in its `Drop` waiting for the
-                // render sub-app to come back from the render thread, and on
-                // shutdown that hand-off may never arrive — the app then
-                // sits in `World::clear_all` forever with its window still
-                // up. Recording render commands on the main thread costs a
-                // fraction of a millisecond here and cannot deadlock.
-                .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
-                .set(ImagePlugin::default_nearest())
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "5Gatos".into(),
-                        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
-                        resizable: true,
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(default_plugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(32.0))
         .add_systems(First, expire_collision_events)
         // Debug renderer is a heavy per-frame cost (every collider drawn as

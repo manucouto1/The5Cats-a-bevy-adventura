@@ -6,3 +6,4 @@
 
 # Packaged builds (scripts/package-macos.sh)
 /dist
+/target-cross

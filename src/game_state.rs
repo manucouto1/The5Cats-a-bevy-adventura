@@ -87,6 +87,61 @@ impl Level {
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct CurrentLevel(pub Level);
 
+/// Reads one of the level's JSON files.
+///
+/// Native builds read it off the disk, which is what keeps the levels
+/// editable without a recompile. The browser has no filesystem, so there
+/// the same files are compiled into the binary — a few hundred KB of JSON
+/// against a wasm module measured in megabytes.
+pub fn read_level_file(path: &str) -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read_to_string(path).ok()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Paths are built from the asset root, which is "assets" here.
+        let tail = path.strip_prefix("assets/").unwrap_or(path);
+        embedded_level_file(tail).map(str::to_owned)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! embedded_levels {
+    ($($tail:literal),* $(,)?) => {
+        fn embedded_level_file(tail: &str) -> Option<&'static str> {
+            match tail {
+                $($tail => Some(include_str!(concat!("../assets/", $tail))),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+embedded_levels!(
+    "levels/level1/level1.json",
+    "levels/level1/level1_active_object.json",
+    "levels/level1/level1_events.json",
+    "levels/level1/level1_gaps.json",
+    "levels/level1/level1_lights.json",
+    "levels/level2/level2.json",
+    "levels/level2/level2_active_object.json",
+    "levels/level2/level2_events.json",
+    "levels/level2/level2_gaps.json",
+    "levels/level2/level2_lights.json",
+    "levels/level3/level3.json",
+    "levels/level3/level3_active_object.json",
+    "levels/level3/level3_events.json",
+    "levels/level3/level3_gaps.json",
+    "levels/level3/level3_lights.json",
+    "levels/level4/level4.json",
+    "levels/level4/level4_active_object.json",
+    "levels/level4/level4_events.json",
+    "levels/level4/level4_gaps.json",
+    "levels/level4/level4_lights.json",
+);
+
 pub struct LevelPaths {
     /// Tilemap JSON (`level{N}.json`). Contains tile positions and dimensions;
     /// per-layer behavior (ground / damage / falling / pipe / bouncy / end_level)

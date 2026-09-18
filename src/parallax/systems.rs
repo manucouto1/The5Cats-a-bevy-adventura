@@ -180,13 +180,13 @@ pub fn camera_follow_system(
     mode: Res<CameraMode>,
     mut snap_request: ResMut<CameraSnapRequested>,
     player_query: Query<&Transform, (With<PlayerCharacter>, Without<MainCamera>)>,
-    mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
+    mut camera_query: Query<(&mut Transform, &mut Projection, &Camera), With<MainCamera>>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let Ok(player_transform) = player_query.single() else {
         return;
     };
-    let Ok((mut camera_transform, mut projection)) = camera_query.single_mut() else {
+    let Ok((mut camera_transform, mut projection, camera)) = camera_query.single_mut() else {
         return;
     };
     let Ok(window) = windows.single() else {
@@ -202,8 +202,17 @@ pub fn camera_follow_system(
 
     // Zoom first: the clamps below need the view size we are about to have.
     // Modes that pin a view width (the shaft) shrink the visible height so
-    // exactly that width fits the window, keeping the window's aspect.
-    let aspect = window.height().max(1.0) / window.width().max(1.0);
+    // exactly that width fits the window, keeping its aspect.
+    //
+    // The aspect comes from the camera's own viewport rather than the
+    // window: in the browser the canvas is resized to its container after
+    // the app starts, and a window that had not caught up yet left the
+    // projection — and with it the parallax quads, which are sized from
+    // it — wrong until something forced a resize.
+    let viewport = camera
+        .logical_viewport_size()
+        .unwrap_or_else(|| Vec2::new(window.width(), window.height()));
+    let aspect = viewport.y.max(1.0) / viewport.x.max(1.0);
     let wanted_height = mode
         .view_width()
         .map(|w| w * aspect)
@@ -289,7 +298,7 @@ pub fn camera_follow_system(
 
     // Snap to positions that land on whole screen pixels — sub-pixel
     // camera positions on pixel-art tiles produce seams between tiles.
-    let world_per_pixel = (half.y * 2.0) / window.height().max(1.0);
+    let world_per_pixel = (half.y * 2.0) / viewport.y.max(1.0);
     camera_transform.translation.x = (smooth.x / world_per_pixel).round() * world_per_pixel;
     camera_transform.translation.y = (smooth.y / world_per_pixel).round() * world_per_pixel;
 }

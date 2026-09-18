@@ -1,4 +1,3 @@
-use std::fs;
 
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -41,7 +40,8 @@ pub fn load_player_assets(
 ) {
     let paths = current_level.0.get_path();
     let root: ActiveObjectRoot = serde_json::from_str(
-        &fs::read_to_string(&paths.active_objects).expect("Failed to read level JSON"),
+        &crate::game_state::read_level_file(&paths.active_objects)
+            .expect("Failed to read level JSON"),
     )
     .expect("Failed to parse hero JSON");
 

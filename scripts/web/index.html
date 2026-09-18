@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>5Gatos</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #14101f;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #efe7ff;
+  }
+  /* Bevy resizes the canvas to this parent (`fit_canvas_to_parent`). */
+  #frame { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #loading {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+    padding: 1rem;
+  }
+  #loading p { margin: 0; opacity: 0.75; font-size: 0.95rem; }
+  #loading strong { font-size: 1.4rem; letter-spacing: 0.02em; }
+  #loading.hidden { display: none; }
+</style>
+</head>
+<body>
+  <div id="frame"><canvas id="game"></canvas></div>
+  <div id="loading">
+    <strong>5Gatos</strong>
+    <p>Loading — the first visit downloads a few tens of MB.</p>
+    <p id="loading-error" hidden></p>
+  </div>
+  <script type="module">
+    import init from "./the5cats.js";
+    // Give the canvas its real size before the engine reads it, so the
+    // first frames are not rendered against a 300x150 default.
+    const canvas = document.getElementById("game");
+    const sizeCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(canvas.clientWidth * dpr);
+      canvas.height = Math.floor(canvas.clientHeight * dpr);
+    };
+    sizeCanvas();
+    const loading = document.getElementById("loading");
+    try {
+      await init();
+      loading.classList.add("hidden");
+    } catch (error) {
+      const message = document.getElementById("loading-error");
+      message.hidden = false;
+      message.textContent = String(error);
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

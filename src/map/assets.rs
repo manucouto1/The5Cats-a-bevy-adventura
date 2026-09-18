@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 
 use serde_json;
-use std::fs;
 
 use crate::game_state::CurrentLevel;
 use crate::map::components::LevelData;
@@ -23,7 +22,7 @@ pub fn load_map_assets(
     let paths = current_level.0.get_path();
     let tile_texture_handle = asset_server.load(&paths.tiles);
     let level_data: LevelData = serde_json::from_str(
-        &fs::read_to_string(&paths.config).expect("Failed to read level JSON"),
+        &crate::game_state::read_level_file(&paths.config).expect("Failed to read level JSON"),
     )
     .expect("Failed to parse level JSON");
 

@@ -271,7 +271,7 @@ impl LevelLighting {
 /// Reads `levelN_lights.json`. A missing file means "no lighting on this
 /// level", which is how levels opt out until they are authored.
 pub fn load_level_lighting(path: &str) -> Option<LevelLighting> {
-    let raw = std::fs::read_to_string(path).ok()?;
+    let raw = crate::game_state::read_level_file(path)?;
     match serde_json::from_str::<LevelLighting>(&raw) {
         Ok(cfg) => Some(cfg),
         Err(e) => {

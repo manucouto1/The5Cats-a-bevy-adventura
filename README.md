@@ -19,13 +19,19 @@ free fall down a shaft full of cats, and a last stand at the bottom.
 
 ## ▶️ Play it
 
-Download for macOS on itch.io: **<https://itch.io/>** _(add the page URL
-once it is published)_. The build is unsigned, so the first launch needs
-right-click → Open.
+On itch.io: **<https://itch.io/>** _(add the page URL once it is
+published)_.
 
-Building a fresh package: `scripts/package-macos.sh` writes
-`dist/5Gatos-macos.zip` with a double-clickable `.app`. The store-page copy
-lives in [`docs/itch-page.md`](docs/itch-page.md).
+Packaging scripts, one per platform, all writing into `dist/`:
+
+| Script | Output | Notes |
+|---|---|---|
+| `scripts/package-macos.sh` | `5Gatos-macos.zip` | Universal `.app` (Apple Silicon + Intel). Unsigned, so the first launch needs right-click → Open |
+| `scripts/package-windows.sh` | `5Gatos-windows.zip` | Cross-built from macOS with `cargo-xwin` |
+| `scripts/package-linux.sh` | `5Gatos-linux-x86_64.tar.gz` | Built in a container (`build-linux-docker.sh`); Bevy needs Linux headers |
+| `scripts/package-web.sh` | `5Gatos-web.zip` | wasm + `index.html`, the layout itch expects for HTML games |
+
+The store-page copy lives in [`docs/itch-page.md`](docs/itch-page.md).
 
 ---
 

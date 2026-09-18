@@ -47,6 +47,11 @@ pub fn setup_parallax_layers(
                 ..default()
             })),
             Transform::from_xyz(0.0, 0.0, -100.0 + index as f32),
+            // The quad is glued to the camera and always covers the whole
+            // view, so there is nothing to cull it against — and leaving it
+            // to the frustum check meant it never drew at all in the browser
+            // until a window resize recomputed the camera's bounds.
+            bevy::render::view::NoFrustumCulling,
             ParallaxLayer {
                 factor: Vec2::new(factor_x, factor_x * vertical_ratio),
                 texture_size,
