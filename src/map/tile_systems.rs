@@ -1,15 +1,15 @@
 use crate::{
+    enemies::systems::HIT_INVINCIBILITY_SECS,
     game_state::LevelCompleteEvent,
     map::components::{
         BouncyPlatform, DamageTile, FallingState, FallingTile, TileProperties, TileType,
     },
     physics::Velocity as PlayerVelocity,
-    player::components::{Health, Invincibility, PlayerCharacter},
+    player::components::{Health, Invincibility, PlayerCharacter, PlayerHitGuard},
 };
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::{CollisionEvent, KinematicCharacterControllerOutput, RigidBody};
 
-// Sistema para manejar tiles que caen
 pub fn falling_tiles_system(
     time: Res<Time>,
     mut falling_tiles: Query<(Entity, &mut FallingTile, &mut Transform), With<TileProperties>>,
@@ -77,43 +77,68 @@ pub fn trigger_falling_tiles_system(
     }
 }
 
+/// Bouncy tiles launch the player along the contact normal — but only when
+/// they're actually moving INTO the surface. Brushing past the side of a
+/// bouncy box (e.g. mid-jump) used to overwrite velocity with `normal * 100`
+/// every frame, which read as a sticky wall that killed jumps. With the
+/// approach-speed gate, idle / parallel contact is ignored and only real
+/// impacts produce a bounce.
 pub fn bouncy_platforms_system(
-    mut bouncy_query: Query<(Entity, &mut BouncyPlatform)>,
+    bouncy_query: Query<&BouncyPlatform>,
     player_query: Query<&KinematicCharacterControllerOutput, With<PlayerCharacter>>,
-    player_velocity_query: Query<&PlayerVelocity, With<PlayerCharacter>>,
+    mut player_velocity_query: Query<&mut PlayerVelocity, With<PlayerCharacter>>,
 ) {
-    if let Ok(controller_output) = player_query.single() {
-        if let Ok(player_velocity) = player_velocity_query.single() {
-            for collision in &controller_output.collisions {
-                let collided_entity = collision.entity;
+    let Ok(controller_output) = player_query.single() else {
+        return;
+    };
+    let Ok(mut player_velocity) = player_velocity_query.single_mut() else {
+        return;
+    };
 
-                if let Ok((_, mut bouncy_platform)) = bouncy_query.get_mut(collided_entity) {
-                    // Calcula la dirección del rebote
-                    let direction = (bouncy_platform.velocity - player_velocity.velocity)
-                        .normalize_or_zero()
-                        * bouncy_platform.bounce_force;
+    // Ignore contacts where the player isn't really moving into the bouncy.
+    // Anything below this px/s is "leaning against it"; above, it's a hit.
+    const MIN_APPROACH_SPEED: f32 = 60.0;
 
-                    // Aplica la nueva velocidad a la plataforma rebotadora
-                    bouncy_platform.velocity = direction;
-                }
-            }
+    for collision in &controller_output.collisions {
+        let Ok(bouncy) = bouncy_query.get(collision.entity) else {
+            continue;
+        };
+        // Normal points from the bouncy surface toward the player; approach
+        // speed is the component of velocity heading into the surface.
+        let normal = collision
+            .hit
+            .details
+            .map(|d| d.normal2)
+            .unwrap_or(bevy::math::Vec2::Y);
+        let approach = -player_velocity.velocity.dot(normal);
+        if approach < MIN_APPROACH_SPEED {
+            continue;
         }
+        // Launch outward; faster impacts bounce harder so falls feel weighty.
+        player_velocity.velocity = normal * (bouncy.bounce_force + approach * 0.5);
+        break;
     }
 }
 
 pub fn damage_platforms_system(
     mut commands: Commands,
+    time: Res<Time>,
+    mut hit_guard: ResMut<PlayerHitGuard>,
+    mut sfx: EventWriter<crate::audio::SfxEvent>,
     player_query: Query<
         (
             Entity,
             &KinematicCharacterControllerOutput,
             Option<&Invincibility>,
         ),
-        With<PlayerCharacter>,
+        (
+            With<PlayerCharacter>,
+            Without<crate::player::components::Dead>,
+        ),
     >,
     mut health_query: Query<&mut Health, With<PlayerCharacter>>,
-    mut velocity_query: Query<&mut PlayerVelocity, With<PlayerCharacter>>,
-    damage_tile_query: Query<&DamageTile>,
+    mut velocity_query: Query<(&mut PlayerVelocity, &Transform), With<PlayerCharacter>>,
+    damage_tile_query: Query<(&DamageTile, &Transform)>,
 ) {
     // Skip silently if the player isn't spawned yet (e.g., the first frame
     // of LevelLoaded before the spawn commands flush) or if they're already
@@ -121,35 +146,46 @@ pub fn damage_platforms_system(
     let Ok((player_entity, controller_output, invincibility)) = player_query.single() else {
         return;
     };
-    if invincibility.is_some() {
+    let now = time.elapsed_secs();
+    if invincibility.is_some() || hit_guard.locked_until_secs > now {
         return;
     }
 
     for collision in &controller_output.collisions {
-        let Ok(damage_tile) = damage_tile_query.get(collision.entity) else {
+        let Ok((damage_tile, tile_tf)) = damage_tile_query.get(collision.entity) else {
             continue;
         };
         let Ok(mut player_health) = health_query.get_mut(player_entity) else {
             continue;
         };
-        let Ok(mut player_velocity) = velocity_query.get_mut(player_entity) else {
+        let Ok((mut player_velocity, player_tf)) = velocity_query.get_mut(player_entity) else {
             continue;
         };
 
         if player_health.current > 0 {
-            player_health.current -= damage_tile.damage_amount as u32;
+            player_health.current = player_health
+                .current
+                .saturating_sub(damage_tile.damage_amount as u32);
+            hit_guard.locked_until_secs = now + HIT_INVINCIBILITY_SECS;
             commands
                 .entity(player_entity)
-                .insert(Invincibility::new(1.9));
+                .insert(Invincibility::new(HIT_INVINCIBILITY_SECS));
+            sfx.write(crate::audio::SfxEvent::HeroHit);
         }
 
-        let Some(details) = collision.hit.details else {
-            continue;
-        };
-        let n = details.normal2;
-        let v = player_velocity.velocity;
-        let reflected = v - 2.0 * v.dot(n) * n;
-        player_velocity.velocity = reflected * 0.9;
+        // Same reaction as an enemy hit: hop up and away from the spike.
+        crate::enemies::systems::apply_knockback(
+            &mut commands,
+            player_entity,
+            &mut player_velocity,
+            player_tf.translation.truncate(),
+            tile_tf.translation.truncate(),
+        );
+
+        // One hit per frame — touching N damage tiles in the same step (a
+        // row of spikes) used to charge N hits before Invincibility could
+        // be applied, dropping the player from 4 HP to 0 in one frame.
+        break;
     }
 }
 

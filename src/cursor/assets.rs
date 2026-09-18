@@ -8,7 +8,7 @@ pub struct CursorAssets {
 
 pub fn load_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     let cursor_handle: Handle<Image> = asset_server.load("cursor/point-cursor.png");
-    let wool_handle: Handle<Image> = asset_server.load("projectiles/wool.png");
+    let wool_handle: Handle<Image> = asset_server.load("projectiles/wool3.png");
     commands.insert_resource(CursorAssets {
         cursor_image: cursor_handle,
         wool_image: wool_handle,

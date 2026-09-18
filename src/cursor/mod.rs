@@ -1,6 +1,6 @@
 mod assets;
-mod components;
-mod systems;
+pub mod components;
+pub mod systems;
 
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -9,8 +9,9 @@ use crate::{
         assets::{CursorAssets, load_assets},
         components::Crosshair,
         systems::{
-            boss_damage_system, boss_follow_hero_system, handle_projectile_despawn,
-            spawn_projectile_on_click, update_aim_assist, wool_ball_damage_system,
+            boss_arena_clamp_system, boss_damage_system, boss_follow_hero_system,
+            boss_landing_system, handle_projectile_despawn, spawn_projectile_on_click,
+            update_aim_assist, wool_ball_damage_system,
         },
     },
     game_state::{GameState, LevelState},
@@ -27,12 +28,19 @@ impl Plugin for CursorPlugin {
         // LevelLoaded, despawns on exit. Otherwise `OnEnter(GameState::Game)`
         // could race `OnEnter(LevelState::Loading)` and miss the resources.
         app.add_systems(OnEnter(LevelState::Loading), load_assets)
+            .add_systems(OnEnter(LevelState::LevelLoaded), spawn_aim_assist)
+            // The crosshair replaces the pointer while playing and gives it
+            // back to every menu — pause included, which otherwise left the
+            // overlay with no pointer to click its buttons — and the frozen
+            // crosshair is hidden there so only one pointer is on screen.
             .add_systems(
-                OnEnter(LevelState::LevelLoaded),
-                (spawn_aim_assist, hide_system_cursor),
+                OnEnter(GameState::Game),
+                (hide_system_cursor, set_crosshair_visible(true)),
             )
-            .add_systems(OnEnter(GameState::MainMenu), show_system_cursor)
-            .add_systems(OnEnter(GameState::GameOver), show_system_cursor)
+            .add_systems(
+                OnExit(GameState::Game),
+                (show_system_cursor, set_crosshair_visible(false)),
+            )
             .add_systems(
                 Update,
                 (
@@ -45,6 +53,8 @@ impl Plugin for CursorPlugin {
                     wool_ball_damage_system.after(spawn_projectile_on_click),
                     boss_damage_system.after(spawn_projectile_on_click),
                     boss_follow_hero_system,
+                    boss_landing_system,
+                    boss_arena_clamp_system,
                     handle_projectile_despawn
                         .after(wool_ball_damage_system)
                         .after(boss_damage_system),
@@ -70,6 +80,20 @@ pub fn hide_system_cursor(mut window_query: Query<&mut Window, With<PrimaryWindo
 pub fn show_system_cursor(mut window_query: Query<&mut Window, With<PrimaryWindow>>) {
     if let Ok(mut window) = window_query.single_mut() {
         window.cursor_options.visible = true;
+    }
+}
+
+/// The crosshair only makes sense while the level is being played; menus
+/// use the system pointer instead.
+fn set_crosshair_visible(visible: bool) -> impl Fn(Query<&mut Visibility, With<Crosshair>>) {
+    move |mut crosshairs: Query<&mut Visibility, With<Crosshair>>| {
+        for mut visibility in &mut crosshairs {
+            *visibility = if visible {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
     }
 }
 
@@ -102,7 +126,7 @@ pub fn spawn_aim_assist(
 
     commands.spawn((
         Sprite {
-            image: cursor_assets.cursor_image.clone(), // Reemplaza con tu imagen
+            image: cursor_assets.cursor_image.clone(),
             texture_atlas: Some(TextureAtlas {
                 layout: texture_atlas_layout.clone(),
                 index: 4,

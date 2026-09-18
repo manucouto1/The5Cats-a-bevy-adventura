@@ -5,14 +5,20 @@ use serde::Deserialize;
 
 use crate::game_state::CurrentLevel;
 
+/// Sprite strips for one costume: standing, walking left, walking right.
+#[derive(Clone)]
+pub struct CostumeSheets {
+    pub standing: Handle<Image>,
+    pub left: Handle<Image>,
+    pub right: Handle<Image>,
+}
+
 // Un Resource para contener las handles de los assets del jugador
 #[derive(Resource)]
 pub struct PlayerAssets {
-    pub hearts: Handle<Image>,
-    pub texture_standing: Handle<Image>,
-    pub texture_left: Handle<Image>,
-    pub texture_right: Handle<Image>,
-    // Puedes añadir más assets si los necesitas, como sonidos, otras animaciones, etc.
+    pub normal: CostumeSheets,
+    /// Same animations wearing the foil hat — shown while maniac mode is on.
+    pub hat: CostumeSheets,
 }
 
 #[derive(Debug, Deserialize, Resource, Clone)]
@@ -40,11 +46,19 @@ pub fn load_player_assets(
     .expect("Failed to parse hero JSON");
 
     commands.insert_resource(PlayerAssets {
-        hearts: asset_server.load("player/Corazon-Sheet.png"),
-        texture_standing: asset_server
-            .load("characters/tofe/standing/Sprite-tofe-standing-Sheet.png"),
-        texture_left: asset_server.load("characters/tofe/walking/Sprite-tofe-walking-L-Sheet.png"),
-        texture_right: asset_server.load("characters/tofe/walking/Sprite-tofe-walking-R-Sheet.png"),
+        normal: CostumeSheets {
+            standing: asset_server.load("characters/tofe/standing/Sprite-tofe-standing-Sheet.png"),
+            left: asset_server.load("characters/tofe/walking/Sprite-tofe-walking-L-Sheet.png"),
+            right: asset_server.load("characters/tofe/walking/Sprite-tofe-walking-R-Sheet.png"),
+        },
+        hat: CostumeSheets {
+            standing: asset_server
+                .load("characters/tofe/standing/hat/Sprite-tofe-standing-hat-Sheet.png"),
+            left: asset_server
+                .load("characters/tofe/walking/hat/Sprite-tofe-walking-hat-L-Sheet.png"),
+            right: asset_server
+                .load("characters/tofe/walking/hat/Sprite-tofe-walking-hat-R-Sheet.png"),
+        },
     });
     commands.insert_resource(root.hero);
 }

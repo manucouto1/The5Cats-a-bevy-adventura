@@ -1,0 +1,51 @@
+{
+  "shading": {
+    "ambient": 0.52,
+    "humidity": 0.38,
+    "ao_strength": 0.34,
+    "ao_radius": 30,
+    "haze_strength": 0.85,
+    "tile_offset": 2,
+    "tile_min_brightness": 0.18,
+    "tile_curve": "smooth",
+    "shadow_softness": 1.25,
+    "backdrop_shadows": 0.0,
+    "cast_shadows": true
+  },
+  "gi": {
+    "iterations": 6,
+    "energy_decay": 0.85,
+    "temporal": true,
+    "temporal_blend": 0.45,
+    "blur": true,
+    "strength": 1.0,
+    "enabled": true,
+    "step_texels": 4
+  },
+  "player_light": {
+    "type": "point",
+    "intensity": 0.35,
+    "falloff": 7,
+    "softness": 3,
+    "color": [
+      0.82,
+      0.94,
+      1.0
+    ],
+    "interior_depth": 14
+  },
+  "lights": [
+    {
+      "type": "sun",
+      "angle": 100,
+      "intensity": 0.62,
+      "softness": 5,
+      "color": [
+        1.0,
+        0.98,
+        0.9
+      ],
+      "interior_depth": 26
+    }
+  ]
+}

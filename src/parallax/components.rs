@@ -3,22 +3,25 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct MainCamera;
 
+/// One background layer. The quad itself is glued to the camera and covers
+/// the visible area; the illusion of depth comes from shifting the
+/// material's UV offset by a fraction of the camera position.
 #[derive(Component, Clone, Copy)]
 pub struct ParallaxLayer {
-    /// Per-axis parallax weight in [0, 1]. The system positions the layer
-    /// at `camera * (1 - scroll_factor)`, so 0 locks the layer to the
-    /// camera and 1 locks it to the world.
-    pub scroll_factor: Vec2,
-    /// World position used as the layer's base; only `z` is currently
-    /// honored, used to stack layers back-to-front.
-    pub start_position: Vec3,
+    /// Fraction of the camera translation applied to the texture offset.
+    /// Small values = far away (barely moves), larger = closer.
+    pub factor: Vec2,
+    /// Texture size in texels, needed to convert world px into UV units.
+    pub texture_size: Vec2,
+    pub z: f32,
 }
 
-impl Default for ParallaxLayer {
-    fn default() -> Self {
-        ParallaxLayer {
-            scroll_factor: Vec2::new(0.5, 0.0),
-            start_position: Vec3::ZERO,
-        }
+/// Half-size of the world rectangle currently visible through `projection`.
+/// Source of truth for every "is this on screen" check, so window resizes
+/// and fullscreen are handled in one place.
+pub fn view_half_extents(projection: &Projection) -> Vec2 {
+    match projection {
+        Projection::Orthographic(ortho) => ortho.area.half_size(),
+        _ => Vec2::new(crate::VIEW_HEIGHT * 16.0 / 9.0, crate::VIEW_HEIGHT) * 0.5,
     }
 }

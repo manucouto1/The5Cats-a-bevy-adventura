@@ -6,7 +6,6 @@ use std::fs;
 use crate::game_state::CurrentLevel;
 use crate::map::components::LevelData;
 
-// Recurso para almacenar los handles del atlas y la textura del tilemap, y el tamaño del tile
 #[derive(Resource)]
 pub struct GameAssets {
     pub tile_texture: Handle<Image>,
@@ -37,6 +36,8 @@ pub fn load_map_assets(
         .iter()
         .map(|x| asset_server.load(x))
         .collect();
+
+    info!("Loaded level {}", paths.config);
 
     commands.insert_resource(level_data);
     commands.insert_resource(GameAssets {

@@ -3,50 +3,55 @@ pub mod systems;
 
 use bevy::{math::Affine2, prelude::*};
 
-use crate::{map::assets::GameAssets, parallax::components::ParallaxLayer};
+use crate::{
+    game_state::CurrentLevel, map::assets::GameAssets, parallax::components::ParallaxLayer,
+};
 
 pub use systems::infinite_parallax_system;
 
-/// Mesh dimensions for every parallax layer. Picked to comfortably exceed
-/// the 1280x720 viewport even after parallax drift, so the simple
-/// "layer follows camera with X parallax" code in `infinite_parallax_system`
-/// never lets the mesh edge slip into view. The texture is tiled across
-/// this mesh via `PARALLAX_UV_TILES_X`.
-const PARALLAX_MESH_WIDTH: f32 = 4096.0;
-const PARALLAX_MESH_HEIGHT: f32 = 1440.0;
-const PARALLAX_UV_TILES_X: f32 = 4.0;
+/// Pygame moved the nearest layer 1.5 px per frame for roughly 5 px of
+/// camera travel and divided that by the layer's depth factor (5..1), i.e.
+/// 0.3 / factor. Index 0 is the sky (deepest), the last one the nearest.
+const DEPTH_FACTORS: [f32; 6] = [5.0, 4.0, 3.0, 2.0, 1.0, 1.0];
+const NEAREST_SCROLL: f32 = 0.3;
 
 pub fn setup_parallax_layers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    images: Res<Assets<Image>>,
     game_assets: Res<GameAssets>,
+    current_level: Res<CurrentLevel>,
 ) {
-    let layer_count = game_assets.parallax_backgrounds.len();
-    let mesh = meshes.add(Rectangle::new(PARALLAX_MESH_WIDTH, PARALLAX_MESH_HEIGHT));
-    for (index, parallax_bg) in game_assets.parallax_backgrounds.iter().enumerate() {
-        // Index 0 is the deepest layer and parallaxes the most; the front
-        // layer barely moves relative to the camera.
-        let depth = (layer_count - index) as f32 / layer_count as f32;
-        let scroll_x = 0.6 * depth;
+    // The final level is a long vertical fall through the sky: let the
+    // clouds stream past. Other levels keep the horizon steady.
+    let vertical_ratio = if current_level.0.is_final() {
+        1.2
+    } else {
+        0.35
+    };
+
+    // Only the first five images are real layers (the pygame loop ran
+    // 1..=5); some level folders ship a sixth, unused one.
+    for (index, parallax_bg) in game_assets.parallax_backgrounds.iter().take(5).enumerate() {
+        let factor_x = NEAREST_SCROLL / DEPTH_FACTORS[index.min(DEPTH_FACTORS.len() - 1)];
+        let texture_size = images
+            .get(parallax_bg)
+            .map(|img| img.size_f32())
+            .unwrap_or(Vec2::new(1640.0, 820.0));
         commands.spawn((
-            Mesh2d(mesh.clone()),
+            Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
             MeshMaterial2d(materials.add(ColorMaterial {
                 texture: Some(parallax_bg.clone()),
-                uv_transform: Affine2::from_scale(Vec2::new(PARALLAX_UV_TILES_X, 1.0)),
+                uv_transform: Affine2::IDENTITY,
                 ..default()
             })),
+            Transform::from_xyz(0.0, 0.0, -100.0 + index as f32),
             ParallaxLayer {
-                // Y locked to camera (no vertical parallax). Vertical
-                // parallax made the sky drift up the screen as the camera
-                // descended in level 4-style sequences.
-                scroll_factor: Vec2::new(scroll_x, 0.0),
-                start_position: Vec3::new(0.0, 0.0, -100.0 - index as f32),
+                factor: Vec2::new(factor_x, factor_x * vertical_ratio),
+                texture_size,
+                z: -100.0 + index as f32,
             },
-            // Initial transform — `infinite_parallax_system` overwrites it
-            // on the first frame, but spawning at z avoids a one-frame flash
-            // at z=0 in front of the gameplay layer.
-            Transform::from_xyz(0.0, 0.0, -100.0 - index as f32),
         ));
     }
 }

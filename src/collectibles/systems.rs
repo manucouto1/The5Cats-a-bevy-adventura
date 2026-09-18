@@ -2,31 +2,49 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::{
+    audio::SfxEvent,
     collectibles::{
-        Score,
         assets::CollectibleAssets,
-        components::{Collectible, Magnetic, ManiacBuff, ScoreText},
+        components::{Collectible, Magnetic, ManiacBuff, SpawnCollectibleEvent, SpawnPop},
     },
     enemies::components::{EnemyKilledEvent, EnemyType},
-    player::components::{Health, PlayerCharacter},
+    game_state::{LevelCompleteEvent, PlayerStats},
+    player::components::{AnimationIndices, Health, PlayerCharacter},
 };
 
-/// Distance at which an ExtraLife starts homing onto the player.
+/// Distance at which a magnetic pickup starts homing onto the player.
 /// Matches pygame's 128-pixel radius.
-const EXTRA_LIFE_MAGNET_RADIUS: f32 = 128.0;
-const EXTRA_LIFE_MAGNET_SPEED: f32 = 250.0;
-const MANIAC_BUFF_DURATION_SECS: f32 = 10.0;
+const MAGNET_RADIUS: f32 = 128.0;
+const MAGNET_SPEED: f32 = 260.0;
+pub const MANIAC_BUFF_DURATION_SECS: f32 = 10.0;
+const POP_GRAVITY: f32 = 900.0;
+/// Pickups render above tiles and below the player.
+const COLLECTIBLE_Z: f32 = 4.0;
 
-/// Maps enemy type → collectible drop, matching pygame drops:
-/// Dummy→KittyPoint, Fufi→ExtraLife, Catcifer→ManiacMode. Unmapped types
-/// (Maximiliano, Willie) drop nothing.
+/// Maps enemy type → drop, matching pygame: Dummy→KittyPoint,
+/// Fufi→ExtraLife, Catcifer→ManiacMode. The boss drops the foil hat via
+/// its own death handler, and unused cats drop nothing.
 fn drop_for(kind: &EnemyType) -> Option<Collectible> {
     match kind {
         EnemyType::Dummy => Some(Collectible::KittyPoint),
         EnemyType::Fufi => Some(Collectible::ExtraLife),
         EnemyType::Catcifer => Some(Collectible::ManiacMode),
-        EnemyType::KiddCat => Some(Collectible::ExtraLife),
         _ => None,
+    }
+}
+
+pub fn drop_on_enemy_death(
+    mut events: EventReader<EnemyKilledEvent>,
+    mut spawn: EventWriter<SpawnCollectibleEvent>,
+) {
+    for ev in events.read() {
+        if let Some(kind) = drop_for(&ev.kind) {
+            spawn.write(SpawnCollectibleEvent {
+                kind,
+                position: ev.position,
+                pop: Vec2::new(0.0, 220.0),
+            });
+        }
     }
 }
 
@@ -34,7 +52,11 @@ fn sprite_for(kind: Collectible, assets: &CollectibleAssets) -> Sprite {
     match kind {
         Collectible::KittyPoint => Sprite {
             image: assets.kitty_point.clone(),
-            custom_size: Some(Vec2::splat(24.0)),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.kitty_point_atlas.clone(),
+                index: 0,
+            }),
+            custom_size: Some(Vec2::splat(32.0)),
             ..default()
         },
         Collectible::ExtraLife => Sprite {
@@ -43,44 +65,79 @@ fn sprite_for(kind: Collectible, assets: &CollectibleAssets) -> Sprite {
                 layout: assets.extra_life_atlas.clone(),
                 index: 0,
             }),
-            custom_size: Some(Vec2::splat(32.0)),
+            custom_size: Some(Vec2::splat(30.0)),
             ..default()
         },
         Collectible::ManiacMode => Sprite {
             image: assets.maniac_mode.clone(),
-            custom_size: Some(Vec2::splat(28.0)),
+            custom_size: Some(Vec2::splat(30.0)),
+            ..default()
+        },
+        Collectible::EndGame => Sprite {
+            image: assets.end_game.clone(),
+            custom_size: Some(Vec2::splat(40.0)),
             ..default()
         },
     }
 }
 
-pub fn spawn_collectible_on_death(
+pub fn spawn_collectibles(
     mut commands: Commands,
-    mut events: EventReader<EnemyKilledEvent>,
+    mut events: EventReader<SpawnCollectibleEvent>,
     assets: Res<CollectibleAssets>,
 ) {
     for ev in events.read() {
-        let Some(kind) = drop_for(&ev.kind) else {
-            continue;
-        };
-
+        let position = Vec3::new(ev.position.x, ev.position.y, COLLECTIBLE_Z);
         let mut entity = commands.spawn((
-            sprite_for(kind, &assets),
-            Transform::from_translation(ev.position),
-            kind,
-            // Kinematic so Transform edits in `magnetic_system` actually
-            // move the collider (Fixed would anchor it at spawn).
+            sprite_for(ev.kind, &assets),
+            Transform::from_translation(position),
+            ev.kind,
+            // Kinematic so Transform edits (magnet, pop) move the collider.
             RigidBody::KinematicPositionBased,
-            Collider::ball(10.0),
+            Collider::ball(12.0),
             Sensor,
             ActiveEvents::COLLISION_EVENTS,
+            SpawnPop {
+                velocity: ev.pop,
+                origin_y: position.y,
+            },
         ));
 
-        if matches!(kind, Collectible::ExtraLife) {
-            entity.insert(Magnetic {
-                trigger_radius: EXTRA_LIFE_MAGNET_RADIUS,
-                speed: EXTRA_LIFE_MAGNET_SPEED,
-            });
+        match ev.kind {
+            Collectible::KittyPoint => {
+                entity.insert((
+                    AnimationIndices::new(0, 7, 10),
+                    Magnetic {
+                        trigger_radius: MAGNET_RADIUS,
+                        speed: MAGNET_SPEED,
+                    },
+                ));
+            }
+            Collectible::ExtraLife => {
+                entity.insert(Magnetic {
+                    trigger_radius: MAGNET_RADIUS,
+                    speed: MAGNET_SPEED,
+                });
+            }
+            Collectible::ManiacMode | Collectible::EndGame => {}
+        }
+    }
+}
+
+/// Small arc when a pickup appears: up, then back down to where it spawned.
+pub fn spawn_pop_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut pops: Query<(Entity, &mut Transform, &mut SpawnPop)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut tf, mut pop) in &mut pops {
+        pop.velocity.y -= POP_GRAVITY * dt;
+        tf.translation.x += pop.velocity.x * dt;
+        tf.translation.y += pop.velocity.y * dt;
+        if pop.velocity.y < 0.0 && tf.translation.y <= pop.origin_y {
+            tf.translation.y = pop.origin_y;
+            commands.entity(entity).remove::<SpawnPop>();
         }
     }
 }
@@ -91,7 +148,11 @@ pub fn magnetic_system(
     player: Query<&Transform, With<PlayerCharacter>>,
     mut magnetics: Query<
         (&mut Transform, &Magnetic),
-        (With<Collectible>, Without<PlayerCharacter>),
+        (
+            With<Collectible>,
+            Without<PlayerCharacter>,
+            Without<SpawnPop>,
+        ),
     >,
 ) {
     let Ok(player_tf) = player.single() else {
@@ -103,7 +164,9 @@ pub fn magnetic_system(
         let dist = pos.distance(player_pos);
         if dist < m.trigger_radius && dist > 1.0 {
             let dir = (player_pos - pos) / dist;
-            let step = dir * m.speed * time.delta_secs();
+            // Accelerate as it gets closer so the last stretch snaps.
+            let speed = m.speed * (1.0 + (1.0 - dist / m.trigger_radius) * 2.0);
+            let step = dir * speed * time.delta_secs();
             tf.translation.x += step.x;
             tf.translation.y += step.y;
         }
@@ -115,10 +178,11 @@ pub fn magnetic_system(
 pub fn pickup_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    mut score: ResMut<Score>,
+    mut stats: ResMut<PlayerStats>,
     mut player_q: Query<(Entity, &mut Health), With<PlayerCharacter>>,
     collectibles_q: Query<&Collectible>,
-    mut sfx: EventWriter<crate::audio::SfxEvent>,
+    mut sfx: EventWriter<SfxEvent>,
+    mut level_complete: EventWriter<LevelCompleteEvent>,
 ) {
     let Ok((player_entity, mut health)) = player_q.single_mut() else {
         return;
@@ -141,21 +205,27 @@ pub fn pickup_system(
 
         match kind {
             Collectible::KittyPoint => {
-                score.kitty_points += 1;
-                sfx.write(crate::audio::SfxEvent::Point);
-                info!("+1 KittyPoint (total: {})", score.kitty_points);
+                stats.kitty_points += 1;
+                sfx.write(SfxEvent::Point);
             }
             Collectible::ExtraLife => {
-                health.current = (health.current + 2).min(health.max);
-                sfx.write(crate::audio::SfxEvent::OneUp);
-                info!("+ExtraLife (hp {}/{})", health.current, health.max);
+                stats.hearts += 1;
+                health.current = (health.current + 1).min(health.max);
+                sfx.write(SfxEvent::OneUp);
             }
             Collectible::ManiacMode => {
-                commands.entity(player_entity).insert(ManiacBuff(
-                    Timer::from_seconds(MANIAC_BUFF_DURATION_SECS, TimerMode::Once),
-                ));
-                sfx.write(crate::audio::SfxEvent::Cookie);
-                info!("ManiacMode activated for {}s", MANIAC_BUFF_DURATION_SECS);
+                stats.cookies += 1;
+                commands
+                    .entity(player_entity)
+                    .insert(ManiacBuff(Timer::from_seconds(
+                        MANIAC_BUFF_DURATION_SECS,
+                        TimerMode::Once,
+                    )));
+                sfx.write(SfxEvent::Cookie);
+            }
+            Collectible::EndGame => {
+                sfx.write(SfxEvent::OneUp);
+                level_complete.write(LevelCompleteEvent);
             }
         }
         commands.entity(other).despawn();
@@ -178,48 +248,6 @@ pub fn maniac_buff_expiration_system(
 }
 
 pub fn despawn_collectibles(mut commands: Commands, q: Query<Entity, With<Collectible>>) {
-    for entity in &q {
-        commands.entity(entity).despawn();
-    }
-}
-
-/// Spawns the score counter in the top-right corner of the screen as a
-/// Bevy UI text node. Resets the score resource on level entry so each
-/// run/level starts from 0 (pygame behavior).
-pub fn spawn_score_hud(mut commands: Commands, mut score: ResMut<Score>) {
-    score.kitty_points = 0;
-    commands.spawn((
-        Text::new("Kitties: 0"),
-        TextFont {
-            font_size: 28.0,
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 0.95, 0.6)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            right: Val::Px(20.0),
-            ..default()
-        },
-        ScoreText,
-    ));
-}
-
-/// Rewrites the score text only when `Score` actually changes — avoids
-/// touching the Text component every frame.
-pub fn update_score_hud(
-    score: Res<Score>,
-    mut score_text: Query<&mut Text, With<ScoreText>>,
-) {
-    if !score.is_changed() {
-        return;
-    }
-    for mut text in &mut score_text {
-        **text = format!("Kitties: {}", score.kitty_points);
-    }
-}
-
-pub fn despawn_score_hud(mut commands: Commands, q: Query<Entity, With<ScoreText>>) {
     for entity in &q {
         commands.entity(entity).despawn();
     }

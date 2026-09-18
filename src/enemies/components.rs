@@ -1,6 +1,6 @@
 use crate::map::components::TilePosition;
-use bevy::prelude::*;
 use bevy::platform::collections::HashMap;
+use bevy::prelude::*;
 use serde::Deserialize;
 use strum_macros::{Display, EnumString, VariantNames};
 
@@ -36,6 +36,7 @@ pub struct EnemyAssetSet {
 #[derive(Resource)]
 pub struct EnemyAssets {
     pub map: HashMap<EnemyType, EnemyAssetSet>,
+    pub projectile_texture: Handle<Image>,
 }
 
 #[derive(Debug, Deserialize, Resource)]
@@ -110,6 +111,13 @@ pub struct ProjectileActive;
 #[derive(Component)]
 pub struct Active;
 
+/// Transient marker on Dummy enemies that suppresses the patrol edge-flip so
+/// they can drop off ledges to chase the player when the player is below.
+/// Inserted/removed by `dummy_chase_system` per frame; `patrol_system` reads
+/// it to decide whether to honor or ignore the edge probe.
+#[derive(Component)]
+pub struct IgnoreEdges;
+
 /// Emitted the moment an enemy's HP drops to 0, before the entity is
 /// despawned. Consumers (collectibles) read `kind` to decide what to drop
 /// and `position` where to spawn it.
@@ -125,19 +133,89 @@ pub struct EnemyKilledEvent {
 #[derive(Component)]
 pub struct FinalBoss {
     pub phase: u8,
-    /// Minimum time between successive hits. Matches pygame's 2s cooldown
-    /// (reduced to 1s here for less grindy testing).
+    /// Minimum time between successive hits. Pygame used 2 s, which made
+    /// each phase a ~40-70 s slog; 0.6 s keeps the fight tense but short.
     pub hit_cooldown: Timer,
+    /// Set after the first hit lands; gates the heart bleed.
+    pub has_been_hit: bool,
+    /// Every 15 s while damaged, the boss sheds three hearts.
+    pub bleed_timer: Timer,
+    /// Phase 2 opener: the boss runs to the shaft and throws itself in.
+    /// While true it ignores the player and heads for `dive_target_x`.
+    pub diving: bool,
+    pub dive_target_x: f32,
+    /// Height at which the boss paces while waiting for the player to jump
+    /// in (recorded when the dive ends).
+    pub hover_y: f32,
 }
 
 impl Default for FinalBoss {
     fn default() -> Self {
-        let mut hit_cooldown = Timer::from_seconds(1.0, TimerMode::Once);
+        let mut hit_cooldown = Timer::from_seconds(0.6, TimerMode::Once);
         // Boss is hittable on the very first frame.
         hit_cooldown.tick(hit_cooldown.duration());
         Self {
             phase: 1,
             hit_cooldown,
+            has_been_hit: false,
+            bleed_timer: Timer::from_seconds(15.0, TimerMode::Repeating),
+            diving: false,
+            dive_target_x: 0.0,
+            hover_y: 0.0,
+        }
+    }
+}
+
+/// Radius of the enemy's circular body collider. Also used by the patrol
+/// probes so big cats don't walk off ledges early or clip into walls.
+#[derive(Component, Clone, Copy)]
+pub struct BodyRadius(pub f32);
+
+impl EnemyType {
+    /// Scale applied to the 64px sprite frames. Pygame drew dummies and
+    /// turrets at 32px, maniacs at 64px and the boss at 124px.
+    pub fn visual_scale(&self) -> f32 {
+        match self {
+            EnemyType::Dummy | EnemyType::Fufi => 0.5,
+            EnemyType::Catcifer => 1.0,
+            EnemyType::KiddCat => 1.9,
+            EnemyType::Maximiliano | EnemyType::Willie => 0.5,
+        }
+    }
+
+    pub fn body_radius(&self) -> f32 {
+        match self {
+            EnemyType::Dummy | EnemyType::Fufi => 16.0,
+            EnemyType::Catcifer => 26.0,
+            EnemyType::KiddCat => 52.0,
+            EnemyType::Maximiliano | EnemyType::Willie => 16.0,
+        }
+    }
+}
+
+/// Per-cat variation while sinking through the shaft so they don't all
+/// line up in a column: a sway phase and an individual sink speed.
+#[derive(Component)]
+pub struct ShaftDrift {
+    pub phase: f32,
+    pub sway: f32,
+}
+
+/// Pygame's maniac came at the hero once it had been shot and never
+/// stopped. Inserted by the wool-ball hit handler; drives `chaser_system`.
+#[derive(Component)]
+pub struct Chaser {
+    pub speed: f32,
+    pub jump_cooldown: Timer,
+}
+
+impl Default for Chaser {
+    fn default() -> Self {
+        let mut jump_cooldown = Timer::from_seconds(1.2, TimerMode::Once);
+        jump_cooldown.tick(jump_cooldown.duration());
+        Self {
+            speed: 75.0,
+            jump_cooldown,
         }
     }
 }
@@ -151,3 +229,19 @@ pub struct ContactDamage {
 /// Componente para marcar a los proyectiles de los enemigos.
 #[derive(Component)]
 pub struct EnemyProjectile;
+
+/// Brief stun applied when an enemy is hit by a wool ball. While present,
+/// `patrol_system` skips the enemy so the knockback velocity isn't wiped
+/// on the next frame.
+#[derive(Component)]
+pub struct EnemyKnockback {
+    pub timer: Timer,
+}
+
+impl EnemyKnockback {
+    pub fn new(duration: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(duration, TimerMode::Once),
+        }
+    }
+}

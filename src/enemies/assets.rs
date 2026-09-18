@@ -13,8 +13,7 @@ pub fn load_enemy_assets(
     let mut map = HashMap::new();
 
     let paths = current_level.0.get_path();
-    let json_string =
-        fs::read_to_string(&paths.active_objects).expect("Failed to read level JSON");
+    let json_string = fs::read_to_string(&paths.active_objects).expect("Failed to read level JSON");
     let enemies_level_data: ActiveLevenData =
         serde_json::from_str(&json_string).expect("Failed to parse level JSON");
     map.insert(
@@ -88,5 +87,8 @@ pub fn load_enemy_assets(
     );
     // Repite para los demás tipos...
     commands.insert_resource(enemies_level_data);
-    commands.insert_resource(EnemyAssets { map });
+    commands.insert_resource(EnemyAssets {
+        map,
+        projectile_texture: asset_server.load("projectiles/wool.png"),
+    });
 }

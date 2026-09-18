@@ -5,44 +5,36 @@ pub mod systems;
 use bevy::prelude::*;
 
 use crate::{
-    collectibles::assets::load_collectible_assets,
+    collectibles::{assets::load_collectible_assets, components::SpawnCollectibleEvent},
     enemies::components::EnemyKilledEvent,
     game_state::{GameState, LevelState},
 };
 use systems::{
-    despawn_collectibles, despawn_score_hud, magnetic_system, maniac_buff_expiration_system,
-    pickup_system, spawn_collectible_on_death, spawn_score_hud, update_score_hud,
+    despawn_collectibles, drop_on_enemy_death, magnetic_system, maniac_buff_expiration_system,
+    pickup_system, spawn_collectibles, spawn_pop_system,
 };
-
-/// Running score (kitty points). HUD will read this in task #13.
-#[derive(Resource, Default)]
-pub struct Score {
-    pub kitty_points: u32,
-}
 
 pub struct CollectiblesPlugin;
 
 impl Plugin for CollectiblesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Score>()
-            .add_event::<EnemyKilledEvent>()
+        app.add_event::<EnemyKilledEvent>()
+            .add_event::<SpawnCollectibleEvent>()
             .add_systems(OnEnter(LevelState::Loading), load_collectible_assets)
-            .add_systems(OnEnter(LevelState::LevelLoaded), spawn_score_hud)
             .add_systems(
                 Update,
                 (
-                    spawn_collectible_on_death,
+                    drop_on_enemy_death,
+                    spawn_collectibles,
+                    spawn_pop_system,
                     magnetic_system,
                     pickup_system,
                     maniac_buff_expiration_system,
-                    update_score_hud,
                 )
+                    .chain()
                     .run_if(in_state(GameState::Game))
                     .run_if(in_state(LevelState::LevelLoaded)),
             )
-            .add_systems(
-                OnExit(LevelState::LevelLoaded),
-                (despawn_collectibles, despawn_score_hud),
-            );
+            .add_systems(OnExit(LevelState::LevelLoaded), despawn_collectibles);
     }
 }

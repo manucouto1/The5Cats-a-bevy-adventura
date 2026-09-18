@@ -11,6 +11,8 @@ serde_json = "1.0"
 strum = "0.27.1"
 strum_macros = "0.27.1"
 rand = "0.8"
+# Already in the tree via bevy_image; used to write the R16Float SDF texture.
+half = "2.6"
 
 [workspace]
 resolver = "2"
@@ -18,7 +20,19 @@ resolver = "2"
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
+# Workaround for objc2-foundation 0.2.2 NSFastEnumeration type-encoding panic
+# on macOS 15+ ("expected return to have type code 'q', but found 'Q'").
+# objc2's runtime verification is gated on debug_assertions; disabling it
+# bypasses the bogus check until winit/bevy upgrade past objc2 0.5.
+debug-assertions = false
 
 # Enable a large amount of optimization in the dev profile for dependencies.
 [profile.dev.package."*"]
 opt-level = 3
+
+# What gets published: link-time optimization and no debug symbols, which
+# takes the binary from ~100 MB to something a player can reasonably
+# download.
+[profile.release]
+lto = "thin"
+strip = "symbols"

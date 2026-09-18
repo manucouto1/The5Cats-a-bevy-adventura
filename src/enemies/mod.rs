@@ -1,17 +1,20 @@
 use std::time::Duration;
 
+use crate::player::{ENEMY_GROUP, PLAYER_GROUP};
 use crate::{
     enemies::{
         assets::load_enemy_assets,
         bundle::EnemyBundle,
         components::{
-            ActiveLevenData, ContactDamage, EnemyAssets, EnemyCharacter, EnemyState, EnemyType,
-            FanShot, FinalBoss, Patrol, TurretShot,
+            ActiveLevenData, BodyRadius, ContactDamage, EnemyAssets, EnemyCharacter, EnemyState,
+            EnemyType, FanShot, FinalBoss, Patrol, TurretShot,
         },
         systems::{
-            ProjectilePool, activator_system, enemy_damage_system, enemy_facing_sprite_system,
-            fan_shot_system, patrol_system, projectile_lifetime_system, setup_projectile_pool,
-            teardown_projectile_pool, turret_shot_system,
+            ProjectilePool, activator_system, chaser_system, dummy_chase_system,
+            enemy_damage_system, enemy_facing_sprite_system, enemy_knockback_system,
+            fan_shot_system, patrol_system, projectile_lifetime_system,
+            projectile_terrain_collision_system, setup_projectile_pool, teardown_projectile_pool,
+            turret_shot_system,
         },
     },
     game_state::{GameState, LevelState},
@@ -23,7 +26,8 @@ use crate::{
 };
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::{
-    ActiveEvents, Collider, KinematicCharacterController, RigidBody, Velocity as RapierVelocity,
+    ActiveEvents, Collider, CollisionGroups, Group, KinematicCharacterController, RigidBody,
+    Velocity as RapierVelocity,
 };
 
 pub mod assets;
@@ -49,10 +53,17 @@ impl Plugin for EnemiesPlugin {
                     // activator runs first so the `With<Active>` filters on
                     // the other systems see the up-to-date marker set.
                     activator_system,
+                    enemy_knockback_system,
                     patrol_system,
+                    // Chase runs after patrol so the chase direction and
+                    // speed override the patrol's default for Dummies in
+                    // detection range.
+                    dummy_chase_system,
+                    chaser_system,
                     turret_shot_system,
                     fan_shot_system,
                     projectile_lifetime_system,
+                    projectile_terrain_collision_system,
                     enemy_damage_system,
                     enemy_facing_sprite_system,
                 )
@@ -96,16 +107,28 @@ pub fn spawn_enemies_characters(
 
             let world_x =
                 x * tile_size_from_json - (map_width_from_json as f32 * tile_size_from_json / 2.0);
+            // Top edge of tile row `y` (pygame anchored the sprite's bottom
+            // there); world Y grows upward.
             let world_y = -y * tile_size_from_json
-                + (map_height_from_json as f32 * tile_size_from_json / 2.0); // Invertir Y
+                + (map_height_from_json as f32 * tile_size_from_json / 2.0);
 
-            let mut transform = Transform::from_scale(Vec3::splat(0.6));
+            let radius = enemy_type.body_radius();
+            let visual_scale = enemy_type.visual_scale();
 
+            let mut transform = Transform::IDENTITY;
             transform.translation.x = world_x + tile_size_from_json / 2.0;
-            transform.translation.y = world_y - tile_size_from_json / 2.0;
+            // Rest the body on the tile row instead of inside it; gravity
+            // settles anything that was placed in the air.
+            transform.translation.y = world_y + radius;
+            // Tile layers render at z = layer.name * 0.1 (up to ~0.5). Place
+            // enemies above the entire tile stack so they aren't occluded
+            // by foreground decoration.
+            transform.translation.z = 5.0;
 
-            let mut sprite_transform = Transform::from_scale(Vec3::splat(0.6));
-            sprite_transform.translation.y += 5.0;
+            // The cats sit in the bottom ~30 px of their 64 px frame; shift
+            // the sprite so their feet line up with the collider's bottom.
+            let mut sprite_transform = Transform::from_scale(Vec3::splat(visual_scale));
+            sprite_transform.translation.y = 30.0 * visual_scale - radius;
 
             let mut enemy_entity = commands.spawn(EnemyBundle::new(transform.translation));
 
@@ -128,7 +151,10 @@ pub fn spawn_enemies_characters(
 
             enemy_entity
                 .insert(enemy_type.clone())
-                .insert(Health { current: hp, max: hp })
+                .insert(Health {
+                    current: hp,
+                    max: hp,
+                })
                 .with_children(|parent| {
                     parent.spawn((
                         Sprite {
@@ -175,8 +201,18 @@ pub fn spawn_enemies_characters(
                     ));
                 })
                 .insert(RigidBody::KinematicPositionBased)
-                .insert(KinematicCharacterController::default())
-                .insert(Collider::ball(32.0 / 2.0))
+                .insert(KinematicCharacterController {
+                    // Cats walk through each other and through the player;
+                    // otherwise the shaft turned into a stack of bodies.
+                    filter_groups: Some(CollisionGroups::new(
+                        ENEMY_GROUP,
+                        Group::ALL & !ENEMY_GROUP & !PLAYER_GROUP,
+                    )),
+                    ..default()
+                })
+                .insert(Collider::ball(radius))
+                .insert(CollisionGroups::new(ENEMY_GROUP, Group::ALL))
+                .insert(BodyRadius(radius))
                 .insert(EnemyCharacter)
                 .insert(AffectedByGravity)
                 .insert(RapierVelocity::zero())
@@ -197,33 +233,29 @@ pub fn spawn_enemies_characters(
                 }
                 EnemyType::Fufi => {
                     // Pygame EnemyTurretShooter: 3 aimed shots ~0.09s apart, 2.88s cooldown, 300px.
-                    let mut burst_interval =
-                        Timer::new(Duration::from_millis(90), TimerMode::Once);
+                    let mut burst_interval = Timer::new(Duration::from_millis(90), TimerMode::Once);
                     burst_interval.tick(burst_interval.duration()); // ready on first frame in range
                     let mut cooldown = Timer::new(Duration::from_millis(2880), TimerMode::Once);
                     cooldown.tick(cooldown.duration());
-                    enemy_entity
-                        .insert(EnemyState::Idle)
-                        .insert(TurretShot {
-                            range: 300.0,
-                            shots_per_burst: 3,
-                            shots_remaining: 0,
-                            burst_interval_timer: burst_interval,
-                            cooldown_timer: cooldown,
-                        });
+                    enemy_entity.insert(EnemyState::Idle).insert(TurretShot {
+                        // Bumped from 300 (pygame original) to 600 to
+                        // account for the wider Bevy viewport — at the
+                        // old range the player out-shot every turret
+                        // from offscreen.
+                        range: 600.0,
+                        shots_per_burst: 3,
+                        shots_remaining: 0,
+                        burst_interval_timer: burst_interval,
+                        cooldown_timer: cooldown,
+                    });
                 }
                 EnemyType::Catcifer => {
                     // Pygame Maniac: fires 16-ray fan every ~2s while hero within 300px.
-                    enemy_entity
-                        .insert(EnemyState::Idle)
-                        .insert(FanShot {
-                            range: 300.0,
-                            rays: 16,
-                            cooldown_timer: Timer::new(
-                                Duration::from_secs(2),
-                                TimerMode::Repeating,
-                            ),
-                        });
+                    enemy_entity.insert(EnemyState::Idle).insert(FanShot {
+                        range: 600.0,
+                        rays: 16,
+                        cooldown_timer: Timer::new(Duration::from_secs(2), TimerMode::Repeating),
+                    });
                 }
                 EnemyType::KiddCat => {
                     // Final boss phase 1: patrols its platform and fires
@@ -241,7 +273,7 @@ pub fn spawn_enemies_characters(
                         })
                         .insert(FinalBoss::default())
                         .insert(TurretShot {
-                            range: 500.0,
+                            range: 800.0,
                             shots_per_burst: 3,
                             shots_remaining: 0,
                             burst_interval_timer: burst,

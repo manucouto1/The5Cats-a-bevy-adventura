@@ -3,8 +3,7 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-// Estructuras para deserializar el JSON del nivel
-#[derive(Debug, Deserialize, Resource)] // Añadimos Resource aquí
+#[derive(Debug, Deserialize, Resource)]
 pub struct LevelData {
     pub tile_size: u32,
     pub map_width: u32,
@@ -23,10 +22,14 @@ pub struct LayerData {
 pub struct TilePosition {
     pub x: u32,
     pub y: u32,
+    /// Tile atlas index. Required for tilemap layers (drives the sprite
+    /// rendered for each cell). Optional for active-object positions
+    /// (`level{N}_active_object.json` enemies/hero), which only consume
+    /// `x`/`y` — older exports often omit it for those entries.
+    #[serde(default)]
     pub id: u32,
 }
 
-// Componente marcador para los tiles del nivel
 #[derive(Component)]
 pub struct LevelTile;
 
@@ -38,28 +41,26 @@ pub enum TileType {
     Damage,          // Tile que causa daño al player
     PipeBottomLeft,  // Pipe en esquina inferior izquierda
     PipeBottomRight, // Pipe en esquina inferior derecha
-    Bouncy,          // Plataforma que rebota al chocar con el player
-    EndLevel,        // Tile que marca el final del nivel
+    Bouncy,          // Springboard: bounces the player on contact
+    EndLevel,        // The goal
 }
 
-// Propiedades para tiles
 #[derive(Component, Debug, Clone)]
 pub struct TileProperties {
     pub tile_type: TileType,
     pub damage: i32,         // Daño que causa (solo para tiles de damage)
     pub fall_delay: f32,     // Tiempo antes de caer (solo para falling tiles)
     pub shake_duration: f32, // Duración del temblor antes de caer
-    pub custom_collider: Option<ColliderShape>, // Forma custom del collider
+    pub custom_collider: Option<ColliderShape>, // Collider shape, if not the full tile
 }
 
-// Enum para formas específicas de colliders
 #[derive(Debug, Clone)]
 pub enum ColliderShape {
     FullTile,           // Tile completo (32x32)
     ThinHorizontal,     // Línea horizontal fina (32x4)
-    HalfVertical,       // Media altura (32x16)
-    QuarterBottomLeft,  // Cuarto inferior izquierdo (16x16)
-    QuarterBottomRight, // Cuarto inferior derecho (16x16)
+    HalfVertical,       // Bottom half only (32x16)
+    QuarterBottomLeft,  // Bottom-left quarter (16x16)
+    QuarterBottomRight, // Bottom-right quarter (16x16)
 }
 
 impl Default for TileProperties {
@@ -126,7 +127,7 @@ impl TileProperties {
         }
     }
 
-    fn end_level() -> TileProperties {
+    pub fn end_level() -> TileProperties {
         TileProperties {
             tile_type: TileType::EndLevel,
             custom_collider: Some(ColliderShape::FullTile),
@@ -135,27 +136,21 @@ impl TileProperties {
     }
 }
 
-/// Maps a layer's `path` string (from the level JSON) to the tile properties
-/// that describe how the tile behaves (collider, damage, falling, etc.).
-///
-/// Two layer-naming conventions exist in the source assets:
-/// - Level 1 uses short names (`ground`, `damage`, `falling`, `bouncy`, …).
-/// - Levels 2-4 use pygame class paths (`src.sprites.passive.platform.Platform`).
-/// We recognize both. Unknown paths return `None` (treated as backdrop).
+/// Maps the semantic `path` string in each level json layer to the per-tile
+/// properties that drive collision and behavior. Paths are normalized by
+/// `scripts/rebuild_level_paths.py` so a single match is enough — no spatial
+/// heuristics, no per-level overrides. `decoration` and any unknown path
+/// returns `None` (sprite-only render, no collider).
 pub fn get_tile_properties_from_path(path: &str) -> Option<TileProperties> {
     match path {
-        "solid" | "ground" | "box" | "src.sprites.passive.platform.Platform" => {
-            Some(TileProperties::solid())
-        }
-        "falling"
-        | "falling_platform"
-        | "src.sprites.passive.platform.FallingPlatform" => Some(TileProperties::falling()),
-        "damage" | "spikes" | "hurt" => Some(TileProperties::damage(1)),
-        "pipe_left" | "pipe_bottom_left" => Some(TileProperties::pipe_bottom_left()),
-        "pipe_right" | "pipe_bottom_right" => Some(TileProperties::pipe_bottom_right()),
-        "bouncy" | "bouncy_platform" | "moving_platform" => Some(TileProperties::bouncy()),
+        "ground" => Some(TileProperties::solid()),
+        "falling" => Some(TileProperties::falling()),
+        "damage" => Some(TileProperties::damage(1)),
+        "bouncy" => Some(TileProperties::bouncy()),
+        "pipe_left" => Some(TileProperties::pipe_bottom_left()),
+        "pipe_right" => Some(TileProperties::pipe_bottom_right()),
         "end_level" => Some(TileProperties::end_level()),
-        _ => None,
+        _ => None, // "decoration" and anything else: sprite-only, no collider.
     }
 }
 
@@ -202,14 +197,11 @@ impl Default for DamageTile {
     }
 }
 
-// Componente marcador para tiles pipe
 #[derive(Component, Debug)]
 pub struct PipeTile {}
 
-// Componente para plataformas que rebotan
 #[derive(Component, Debug)]
 pub struct BouncyPlatform {
-    pub velocity: Vec2,
     pub bounce_force: f32,
     pub original_position: Vec3,
 }
@@ -217,10 +209,8 @@ pub struct BouncyPlatform {
 impl Default for BouncyPlatform {
     fn default() -> Self {
         BouncyPlatform {
-            velocity: Vec2::ZERO,
             bounce_force: 100.0,
             original_position: Vec3::ZERO,
         }
     }
 }
-
